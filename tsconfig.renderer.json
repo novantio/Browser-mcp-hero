@@ -1,0 +1,5 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "module": "ES2022", "moduleResolution": "Bundler", "outDir": "dist/ui" },
+  "include": ["src/renderer/**/*.ts", "src/shared/types.ts"]
+}

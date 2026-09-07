@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'">
+  <title>Hero Browser</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="browser-chrome">
+    <div class="tab-row">
+      <div class="wordmark"><span class="brand-mark">h<span>↗</span></span><span>hero<span class="brand-dot">.</span></span></div>
+      <div id="tabs" class="tabs" role="tablist" aria-label="Tab browser"></div>
+      <button id="new-tab" class="icon-button add-tab" aria-label="Buka tab baru" title="Tab baru (Ctrl+T)">+</button>
+      <div class="mode-label"><span class="status-dot"></span> Kontrol manual</div>
+    </div>
+    <div class="navigation-row">
+      <div class="navigation-buttons">
+        <button id="back" class="icon-button" aria-label="Kembali" title="Kembali (Alt+Left)">←</button>
+        <button id="forward" class="icon-button" aria-label="Maju" title="Maju (Alt+Right)">→</button>
+        <button id="reload" class="icon-button" aria-label="Muat ulang" title="Muat ulang (Ctrl+R)">↻</button>
+      </div>
+      <form id="address-form" class="address-form">
+        <span id="address-icon" class="address-icon" aria-hidden="true">⌕</span>
+        <input id="address" type="text" spellcheck="false" autocomplete="off" aria-label="Alamat atau pencarian" placeholder="Cari di web atau masukkan alamat">
+        <kbd>Ctrl L</kbd>
+      </form>
+      <button id="toggle-panel" class="panel-button" aria-expanded="true" aria-controls="side-panel" title="Tampilkan atau sembunyikan panel sesi"><span aria-hidden="true">◫</span> Ruang kerja</button>
+    </div>
+  </header>
+
+  <div class="workspace">
+    <main id="browser-surface" class="browser-surface">
+      <section id="welcome" class="welcome">
+        <div class="welcome-top"><span><span class="tiny-orbit"></span> RUANG JELAJAHMU</span><span>HERO / 0.1</span></div>
+        <div class="welcome-body">
+          <div class="hero-emblem" aria-hidden="true"><span>h</span><i>↗</i></div>
+          <p class="eyebrow">DIMULAI DARI RASA INGIN TAHU</p>
+          <h1>Ke mana kita<br>menjelajah hari ini<span>?</span></h1>
+          <p class="intro">Buka sebuah halaman. Ikuti idemu.<br>Ruang ini milikmu.</p>
+          <form id="search-form" class="search-form">
+            <span aria-hidden="true">⌕</span>
+            <input id="search" aria-label="Cari dari tab baru" autocomplete="off" placeholder="Cari sesuatu atau tempel alamat…">
+            <button type="submit" aria-label="Mulai menjelajah">↗</button>
+          </form>
+          <div class="quick-links" aria-label="Pintasan situs">
+            <button data-url="https://github.com"><span class="site-icon github">⌘</span><span>GitHub</span><span class="link-arrow">↗</span></button>
+            <button data-url="https://www.wikipedia.org"><span class="site-icon wiki">W</span><span>Wikipedia</span><span class="link-arrow">↗</span></button>
+            <button data-url="https://www.electronjs.org"><span class="site-icon electron">◎</span><span>Electron</span><span class="link-arrow">↗</span></button>
+          </div>
+        </div>
+        <div class="welcome-footer"><span><span class="status-dot"></span> Browser siap digunakan</span><span>Manusia yang memegang kendali.</span></div>
+      </section>
+      <section id="page-error" class="page-error" hidden>
+        <span class="error-symbol" aria-hidden="true">↯</span>
+        <p class="eyebrow">KONEKSI TERHENTI</p>
+        <h1>Belum sampai tujuan.</h1>
+        <p id="page-error-message"></p>
+        <button id="retry" class="primary-button">Coba lagi ↻</button>
+      </section>
+      <div id="loading-line" class="loading-line" hidden></div>
+    </main>
+
+    <aside id="side-panel" class="side-panel">
+      <div class="panel-heading"><span>Ruang kerja</span><span class="panel-tag">LOKAL</span></div>
+      <div class="session-card">
+        <div class="session-icon" aria-hidden="true">◈</div>
+        <div><h2>Sesi penjelajahan</h2><p>Ruang browser saat ini</p></div>
+        <span class="status-dot"></span>
+      </div>
+      <dl class="session-facts"><div><dt>Tab terbuka</dt><dd id="tab-count">1</dd></div><div><dt>Kontrol</dt><dd>Manual</dd></div><div><dt>Penyimpanan</dt><dd>Sementara</dd></div></dl>
+      <div class="section-divider"></div>
+      <div class="section-label">ASISTEN AI <span>TAHAP BERIKUTNYA</span></div>
+      <div class="assistant-state"><div class="assistant-orbit" aria-hidden="true">✳</div><h2>Tempat untuk kolaborasi.</h2><p>Koneksi MCP dan aktivitas AI akan hadir di tahap berikutnya. Sekarang, jelajahi web seperti biasa.</p><span class="offline-badge"><span></span> MCP belum tersedia</span></div>
+      <div class="panel-bottom"><span class="shortcut-heading">SEDIKIT PINTASAN</span><div><span>Tab baru</span><kbd>Ctrl T</kbd></div><div><span>Pilih alamat</span><kbd>Ctrl L</kbd></div><div><span>Tutup tab</span><kbd>Ctrl W</kbd></div><p>Hero Browser <span>Milestone 01</span></p></div>
+    </aside>
+  </div>
+  <footer class="status-bar"><span id="page-status" role="status">Tab baru</span><span>HERO BROWSER <span class="footer-separator">/</span> HUMAN FIRST</span></footer>
+  <div id="toast" role="alert" hidden></div>
+  <script type="module" src="index.js"></script>
+</body>
+</html>
