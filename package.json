@@ -1,6 +1,6 @@
 {
   "name": "hero-browser",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "A browser foundation for a shared human and AI session.",
   "main": "dist/main/index.js",
@@ -9,7 +9,7 @@
     "start": "node scripts/start.cjs",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.renderer.json --noEmit",
     "test": "node scripts/build.cjs && node --test tests/*.test.cjs",
-    "test:e2e": "node scripts/build.cjs && node tests/electron.cjs"
+    "test:e2e": "node scripts/build.cjs && node tests/electron.cjs && node tests/persistence.cjs"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

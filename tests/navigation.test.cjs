@@ -27,3 +27,15 @@ test('native bounds reject malformed or unbounded geometry', () => {
   assert.deepEqual(parseBounds({ x: 0, y: 117, width: 1000, height: 600 }), { x: 0, y: 117, width: 1000, height: 600 });
   for (const input of [{ x: -1, y: 1, width: 1, height: 1 }, { x: 0, y: 0, width: Infinity, height: 1 }, { x: 0, y: 0, width: 1.5, height: 1 }, {}]) assert.throws(() => parseBounds(input));
 });
+
+test('profile commands reject unsafe IDs and excess fields at IPC boundary', () => {
+  assert.deepEqual(parseCommand({ action: 'switch-profile', profileId: 'instagram' }), { action: 'switch-profile', profileId: 'instagram' });
+  assert.deepEqual(parseCommand({ action: 'create-profile', name: 'Akun kerja' }), { action: 'create-profile', name: 'Akun kerja' });
+  for (const input of [
+    { action: 'switch-profile', profileId: '../outside' },
+    { action: 'delete-profile', profileId: 'default', force: true },
+    { action: 'create-profile', name: 42 },
+    { action: 'create-profile', name: 'x'.repeat(41) },
+    { action: 'save-session', extra: true }
+  ]) assert.throws(() => parseCommand(input));
+});

@@ -1,8 +1,8 @@
 # Hero Browser
 
-Browser desktop berbasis Electron + TypeScript untuk fondasi runtime browser bersama manusia dan AI.
+Browser desktop Electron + TypeScript untuk fondasi runtime browser bersama manusia dan AI.
 
-**Milestone 1 selesai:** browser dengan tab dan address bar. Profil persisten, MCP, penguncian profil, task engine, dan human intervention belum diimplementasikan.
+**Versi 0.2:** tab browser, profil persisten, pemilihan/pembuatan/penghapusan profil, dan fondasi profile lock. MCP, task engine, serta human intervention belum tersedia.
 
 ## Menjalankan
 
@@ -19,26 +19,56 @@ Pada Windows, setelah dependensi terpasang, klik dua kali **start.cmd** atau jal
 node scripts/start.cjs
 ```
 
-Launcher membangun TypeScript lalu membuka Electron. Tidak memerlukan server pengembangan, API key, atau koneksi MCP. Electron dapat mengunduh binary saat pertama kali dijalankan.
+Launcher membangun TypeScript lalu membuka Electron. Aplikasi tidak memerlukan API key atau server pengembangan. Jika versi persisten sudah terbuka, peluncuran kedua akan memfokuskan jendela tersebut.
 
-Di mesin pengembangan awal, wrapper npm global menunjuk ke instalasi yang hilang. Dependensi dipasang melalui CLI npm yang tersedia di direktori instalasi Node. Launcher di atas tidak memerlukan wrapper npm global setelah instalasi dependensi.
+Wrapper npm global pada mesin pengembangan awal bermasalah. Launcher langsung di atas tetap dapat dipakai setelah dependensi terpasang.
 
-## Fitur yang dapat dipakai
+## Mulai memakai profil
 
-- Buka, pilih, dan tutup tab; menutup tab terakhir menampilkan tab baru.
-- Masukkan URL atau istilah pencarian; pencarian menggunakan Google.
-- Back, forward, reload, hentikan pemuatan, dan pemulihan halaman gagal dimuat.
-- Tautan ke jendela baru menjadi tab di jendela yang sama.
-- Konten halaman tetap hidup ketika berpindah tab.
-- Panel sesi dengan jumlah tab nyata dan pilihan sembunyikan/tampilkan.
-- Shortcut Ctrl/Cmd+L, Ctrl/Cmd+T, Ctrl/Cmd+W, Ctrl/Cmd+R; Alt+Left/Right.
-- Maksimal 30 tab untuk membatasi penggunaan sumber daya.
+1. Pilih **Instagram** melalui menu **Profil** di kanan atas.
+2. Klik pintasan Instagram, lalu login secara manual.
+3. Pilih profil **YouTube**, buka pintasan YouTube, lalu login.
+4. Klik **Simpan sekarang** untuk segera menyimpan perubahan yang masih menunggu penulisan ke disk. Penyimpanan Chromium juga berjalan otomatis, dan aplikasi menunggu proses simpan ketika ditutup normal.
+5. Buka ulang aplikasi dan pilih profil yang sama untuk memakai data situs tersebut kembali.
 
-## Batas tahap ini
+Profil bawaan: Default, Instagram, YouTube, Riset. Nama profil adalah label, bukan pembatas situs: setiap profil bisa membuka situs apa pun. Cookie, localStorage, IndexedDB dan cache dipisahkan per profil. Tab tetap hidup saat berpindah profil selama aplikasi terbuka.
 
-Sesi situs dibagi oleh tab dalam **partisi sementara**. State halaman bertahan selama tab masih terbuka; sesi tidak dijanjikan bertahan setelah aplikasi ditutup. Pilihan ini disengaja karena profil persisten adalah Milestone 2. Status autentikasi tidak ditebak dari jumlah cookie.
+Form **Profil baru** membuat profil tambahan, maksimal 20. **Hapus profil** menampilkan konfirmasi lalu menutup tab dan membersihkan data situs milik profil itu saja. Default tidak dapat dihapus. Penghapusan menggunakan API Chromium; direktori kontainer yang kosong mungkin tetap ada di disk.
 
-MCP dan asisten AI pada panel ditandai sebagai belum tersedia. Belum ada koneksi agent, penyimpanan password, bookmark, restore tab, installer, atau pembaruan otomatis. Kamera, mikrofon, geolokasi, notifikasi, dan unduhan ditolak sampai alur perizinan tersedia. Navigasi dibatasi ke HTTP/HTTPS; protokol lokal/aplikasi eksternal tidak dibuka.
+## Login dari versi 0.1
+
+Versi pertama memakai partisi memori sementara. Login pada jendela versi 0.1 yang masih terbuka **tidak otomatis berpindah** ke versi 0.2. Tidak tersedia jalur migrasi live pada versi lama.
+
+Versi persisten menggunakan direktori data berbeda agar dapat dibuka bersamaan dengan jendela lama. Login sekali lagi pada profil versi baru. Jangan mengandalkan jendela versi 0.1 untuk menyimpan login setelah ditutup.
+
+## Penyimpanan dan batas sesi
+
+Di Windows, data versi persisten berada di:
+
+```text
+%APPDATA%/Hero Browser Profiles/
+  profiles.json                Nama, ID, waktu dibuat, dan pilihan profil
+  Partitions/hero-<profileId>/  Data situs yang dikelola Chromium
+```
+
+Direktori aktual partisi mengikuti Electron. Nama pengguna untuk profil tidak dipakai sebagai path; profil tambahan menggunakan UUID. File metadata ditulis atomik. Metadata rusak dilaporkan dan tidak diganti diam-diam.
+
+**Penyimpanan persisten tidak menjamin login selamanya.** Cookie dengan masa berlaku disimpan oleh Chromium. Cookie sesi tanpa tanggal kedaluwarsa dan sessionStorage tidak dijamin bertahan setelah restart; situs juga dapat mengakhiri login atau meminta verifikasi ulang. Aplikasi tidak memperpanjang masa berlaku cookie, tidak mengekspor token, dan tidak menebak status autentikasi.
+
+Pilihan profil terakhir dipulihkan saat membuka aplikasi. Daftar URL/tab belum dipulihkan setelah restart. Tidak ada penyimpanan password buatan aplikasi atau impor cookie akun lain.
+
+## Browser
+
+- Tab, address bar, pencarian Google, back/forward, reload dan stop.
+- Popup HTTP/HTTPS menjadi tab yang dikelola.
+- Halaman gagal memuat menampilkan tombol coba lagi.
+- Maksimal 30 tab total di semua profil.
+- Ctrl/Cmd+L, Ctrl/Cmd+T, Ctrl/Cmd+W, Ctrl/Cmd+R; Alt+Left/Right.
+- Panel sesi dapat disembunyikan.
+
+Remote page tidak memiliki Node.js, preload internal, atau akses filesystem. Kamera, mikrofon, geolokasi, notifikasi dan unduhan ditolak sampai permission UI tersedia. Protokol lokal/eksternal tidak dibuka.
+
+ProfileManager memiliki lock berdasarkan owner task dan menolak owner berbeda serta penghapusan profil terkunci. Integrasi lock dengan agent akan diterapkan bersama task engine; belum ada aktivitas AI atau koneksi MCP pada versi ini.
 
 ## Pemeriksaan
 
@@ -54,31 +84,28 @@ Alternatif tanpa wrapper npm:
 node scripts/build.cjs
 node --test tests/*.test.cjs
 node tests/electron.cjs
+node tests/persistence.cjs
 ```
 
-Tes integrasi menjalankan Electron asli, server fixture lokal, dan direktori data pengujian terpisah di `test-results/electron-profile`. Tes memverifikasi navigasi, state antartab, popup, ukuran native view, shortcut native, isolasi remote, URL terlarang, pemulihan kegagalan, serta cleanup tab. Screenshot disimpan di `test-results/home.png` dan `test-results/compact.png`.
+Unit tests memverifikasi URL, IPC, metadata, validasi profil, penghapusan, dan ownership lock.
 
-Tes situs lokal tidak menjamin kompatibilitas semua situs, login pihak ketiga, DRM, atau mekanisme verifikasi web.
+Tes Electron menggunakan server localhost dan data sintetis di direktori pengujian terpisah. Tes persistence menutup dan membuka ulang Electron; memverifikasi cookie persisten, localStorage, IndexedDB, pemisahan profil, single-instance, pembatalan/penghapusan profil serta kebersihan renderer. Akun Instagram/YouTube pengguna tidak diakses oleh tes.
+
+Screenshot: `test-results/home.png`, `test-results/compact.png`, `test-results/profiles.png`.
 
 ## Struktur
 
 ```text
-src/
-  main/
-    index.ts               Lifecycle jendela dan validasi pengirim IPC
-    browser-manager.ts     Lifecycle tab, navigasi dan native view
-  preload/
-    index.ts               API terbatas untuk UI aplikasi
-  renderer/
-    index.html             Browser chrome, tab baru dan panel sesi
-    index.ts               Rendering state dan interaksi UI
-    styles.css             Tema serta tata letak
-  shared/
-    types.ts               Kontrak state, command dan preload
-    navigation.ts          Validasi command, URL dan area view
-scripts/                   Build dan launcher
-tests/                     Unit serta integrasi Electron
-docs/architecture.md       Keputusan arsitektur dan roadmap
+src/main/
+  index.ts               Lifecycle, single-instance, IPC dan konfirmasi hapus
+  browser-manager.ts     Tab dan navigasi per profil
+  profile-manager.ts     Metadata persisten dan ownership lock
+  session-manager.ts     Partisi Chromium, flush, dan penghapusan data
+src/preload/index.ts     API UI terbatas
+src/renderer/           Antarmuka browser
+src/shared/             Tipe dan validasi input
+tests/                  Unit dan integrasi Electron
+docs/architecture.md    Arsitektur dan roadmap
 ```
 
-Versi terpasang dikunci dalam `package-lock.json`: Electron 44.2.0, TypeScript 7.0.2, Playwright 1.63.0.
+Electron 44.2.0, TypeScript 7.0.2, Playwright 1.63.0. Dependensi dikunci di `package-lock.json`.

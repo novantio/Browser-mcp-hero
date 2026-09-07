@@ -1,26 +1,29 @@
 import { randomUUID } from 'node:crypto';
-import { BrowserWindow, WebContentsView, session } from 'electron';
+import { BrowserWindow, WebContentsView } from 'electron';
+import { ProfileManager } from './profile-manager';
+import { SessionManager } from './session-manager';
 import { isWebUrl, resolveAddress } from '../shared/navigation';
 import type { BrowserCommand, BrowserState, BrowserTab, ViewBounds } from '../shared/types';
 
-interface TabEntry { state: BrowserTab; view: WebContentsView | null }
+interface TabEntry { state: BrowserTab; view: WebContentsView | null; profileId: string }
 
 export class BrowserManager {
   private readonly tabs = new Map<string, TabEntry>();
   private activeTabId = '';
   private bounds: ViewBounds = { x: 0, y: 124, width: 900, height: 600 };
-  private readonly browserSession = session.fromPartition('hero-milestone-one');
+  private readonly activeTabs = new Map<string, string>();
   private disposed = false;
 
-  constructor(private readonly window: BrowserWindow, private readonly publish: (state: BrowserState) => void) {
-    this.browserSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
-    this.browserSession.setPermissionCheckHandler(() => false);
-    this.browserSession.on('will-download', event => event.preventDefault());
+  constructor(private readonly window: BrowserWindow, private readonly publish: (state: BrowserState) => void,
+      private readonly profiles: ProfileManager, private readonly sessions: SessionManager) {
     this.newTab();
   }
 
   snapshot(): BrowserState {
-    return { tabs: [...this.tabs.values()].map(tab => ({ ...tab.state })), activeTabId: this.activeTabId };
+    return {
+      tabs: [...this.tabs.values()].filter(tab => tab.profileId === this.profiles.activeProfileId).map(tab => ({ ...tab.state })),
+      activeTabId: this.activeTabId, profiles: this.profiles.listProfiles(), activeProfileId: this.profiles.activeProfileId, persistent: true,
+    };
   }
 
   private emit(): void {
@@ -36,15 +39,16 @@ export class BrowserManager {
   newTab(): void {
     if (this.tabs.size >= 30) throw new Error('Maksimal 30 tab. Tutup satu tab terlebih dahulu.');
     const id = randomUUID();
-    this.tabs.set(id, { state: { id, title: 'Tab baru', url: '', loading: false, canGoBack: false, canGoForward: false, error: null }, view: null });
+    this.tabs.set(id, { state: { id, title: 'Tab baru', url: '', loading: false, canGoBack: false, canGoForward: false, error: null }, view: null, profileId: this.profiles.activeProfileId });
     this.activeTabId = id;
+    this.activeTabs.set(this.profiles.activeProfileId, id);
     this.layout();
     this.emit();
   }
 
   private createView(tab: TabEntry): WebContentsView {
     const view = new WebContentsView({ webPreferences: {
-      session: this.browserSession, nodeIntegration: false, contextIsolation: true,
+      session: this.sessions.getSession(tab.profileId), nodeIntegration: false, contextIsolation: true,
       sandbox: true, webSecurity: true, allowRunningInsecureContent: false,
       navigateOnDragDrop: false, spellcheck: true,
     } });
@@ -98,7 +102,7 @@ export class BrowserManager {
       if (!isWebUrl(event.url) && event.url !== 'about:blank') event.preventDefault();
     });
     contents.setWindowOpenHandler(({ url }) => {
-      if (isWebUrl(url) && this.tabs.size < 30) {
+      if (isWebUrl(url) && this.tabs.size < 30 && tab.profileId === this.profiles.activeProfileId) {
         this.newTab();
         this.navigate(url);
       }
@@ -141,16 +145,17 @@ export class BrowserManager {
 
   private closeTab(id: string): void {
     const tab = this.tabs.get(id);
-    if (!tab) throw new Error('Tab tidak ditemukan.');
-    const ids = [...this.tabs.keys()];
+    if (!tab || tab.profileId !== this.profiles.activeProfileId) throw new Error('Tab tidak ditemukan di profil aktif.');
+    const ids = [...this.tabs.values()].filter(entry => entry.profileId === tab.profileId).map(entry => entry.state.id);
     const index = ids.indexOf(id);
     this.tabs.delete(id);
     if (tab.view) {
       this.window.contentView.removeChildView(tab.view);
       tab.view.webContents.close();
     }
-    if (!this.tabs.size) { this.newTab(); return; }
-    if (this.activeTabId === id) this.activeTabId = ids[index + 1] ?? ids[index - 1] ?? [...this.tabs.keys()][0]!;
+    if (ids.length === 1) { this.newTab(); return; }
+    if (this.activeTabId === id) this.activeTabId = ids[index + 1] ?? ids[index - 1]!;
+    this.activeTabs.set(this.profiles.activeProfileId, this.activeTabId);
     this.layout();
     this.emit();
   }
@@ -160,8 +165,9 @@ export class BrowserManager {
       case 'new-tab': this.newTab(); this.focusAddress(); return;
       case 'close-tab': this.closeTab(command.tabId); return;
       case 'switch-tab':
-        if (!this.tabs.has(command.tabId)) throw new Error('Tab tidak ditemukan.');
+        if (this.tabs.get(command.tabId)?.profileId !== this.profiles.activeProfileId) throw new Error('Tab tidak ditemukan di profil aktif.');
         this.activeTabId = command.tabId;
+        this.activeTabs.set(this.profiles.activeProfileId, command.tabId);
         this.layout(); this.emit(); return;
       case 'navigate': this.navigate(command.input); return;
       case 'home': this.newTab(); this.focusAddress(); return;
@@ -179,6 +185,41 @@ export class BrowserManager {
     if (command.action === 'stop') contents.stop();
   }
 
+  createProfile(name: string): void {
+    if (this.tabs.size >= 30) throw new Error('Tutup satu tab sebelum membuat profil.');
+    const profile = this.profiles.createProfile(name);
+    this.switchProfile(profile.id);
+  }
+
+  switchProfile(id: string): void {
+    if (id === this.profiles.activeProfileId) return;
+    if (!this.activeTabs.has(id) && this.tabs.size >= 30) throw new Error('Tutup satu tab sebelum membuka profil lain.');
+    this.profiles.switchProfile(id);
+    const active = this.activeTabs.get(id);
+    if (!active) { this.newTab(); return; }
+    this.activeTabId = active;
+    this.layout();
+    this.emit();
+  }
+
+  async deleteProfile(id: string): Promise<void> {
+    this.profiles.assertDeletable(id);
+    for (const [tabId, tab] of this.tabs) {
+      if (tab.profileId !== id) continue;
+      this.tabs.delete(tabId);
+      if (tab.view) {
+        this.window.contentView.removeChildView(tab.view);
+        tab.view.webContents.close();
+      }
+    }
+    this.activeTabs.delete(id);
+    // Keep valid visible state even if clearing or metadata persistence fails.
+    if (this.profiles.activeProfileId === id) this.switchProfile('default');
+    await this.sessions.clearProfile(id);
+    this.profiles.deleteProfile(id);
+    this.emit();
+  }
+
   setBounds(bounds: ViewBounds): void { this.bounds = bounds; this.layout(); }
 
   layout(): void {
@@ -188,7 +229,7 @@ export class BrowserManager {
     for (const [id, tab] of this.tabs) {
       if (!tab.view) continue;
       tab.view.setBounds({ x, y, width: Math.max(0, Math.min(this.bounds.width, width - x)), height: Math.max(0, Math.min(this.bounds.height, height - y)) });
-      tab.view.setVisible(id === this.activeTabId && !tab.state.error);
+      tab.view.setVisible(id === this.activeTabId && tab.profileId === this.profiles.activeProfileId && !tab.state.error);
     }
   }
 

@@ -1,3 +1,4 @@
+import type { ProfileState } from './profiles';
 export interface BrowserTab {
   id: string;
   title: string;
@@ -8,13 +9,15 @@ export interface BrowserTab {
   error: string | null;
 }
 
-export interface BrowserState {
+export interface BrowserState extends ProfileState {
   tabs: BrowserTab[];
   activeTabId: string;
 }
 
 export type BrowserCommand =
-  | { action: 'new-tab' }
+  | { action: 'new-tab' | 'save-session' }
+  | { action: 'create-profile'; name: string }
+  | { action: 'switch-profile' | 'delete-profile'; profileId: string }
   | { action: 'close-tab' | 'switch-tab'; tabId: string }
   | { action: 'navigate'; input: string }
   | { action: 'back' | 'forward' | 'reload' | 'stop' | 'home' };

@@ -26,7 +26,7 @@ export function resolveAddress(value: string): string {
 export function parseCommand(value: unknown): BrowserCommand {
   if (!value || typeof value !== 'object') throw new Error('Perintah tidak valid.');
   const data = value as Record<string, unknown>;
-  const simple = ['new-tab', 'back', 'forward', 'reload', 'stop', 'home'];
+  const simple = ['new-tab', 'back', 'forward', 'reload', 'stop', 'home', 'save-session'];
   if (typeof data.action !== 'string') throw new Error('Aksi tidak valid.');
   const keys = Object.keys(data);
   if (simple.includes(data.action) && keys.length === 1) return data as BrowserCommand;
@@ -35,6 +35,13 @@ export function parseCommand(value: unknown): BrowserCommand {
   }
   if (['close-tab', 'switch-tab'].includes(data.action) && typeof data.tabId === 'string' && data.tabId.length <= 100 && keys.length === 2) {
     return { action: data.action as 'close-tab' | 'switch-tab', tabId: data.tabId };
+  }
+  if (data.action === 'create-profile' && typeof data.name === 'string' && data.name.length <= 40 && keys.length === 2) {
+    return { action: 'create-profile', name: data.name };
+  }
+  if (['switch-profile', 'delete-profile'].includes(data.action) && typeof data.profileId === 'string' &&
+      /^[a-z0-9][a-z0-9-]{0,63}$/.test(data.profileId) && keys.length === 2) {
+    return { action: data.action as 'switch-profile' | 'delete-profile', profileId: data.profileId };
   }
   throw new Error('Perintah tidak dikenal atau argumen tidak valid.');
 }

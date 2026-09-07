@@ -22,11 +22,45 @@ function showError(message: string): void {
   toastTimer = setTimeout(() => { toast.hidden = true; }, 6000);
 }
 
-async function command(value: BrowserCommand): Promise<void> {
+let profilePending = false;
+function updateProfileControls(): void {
+  element<HTMLSelectElement>('profile-select').disabled = profilePending;
+  element<HTMLInputElement>('profile-name').disabled = profilePending;
+  element<HTMLButtonElement>('create-profile').disabled = profilePending;
+  element<HTMLButtonElement>('save-session').disabled = profilePending;
+  const selected = current?.profiles.find(profile => profile.id === current?.activeProfileId);
+  element<HTMLButtonElement>('delete-profile').disabled = profilePending || current?.activeProfileId === 'default' || Boolean(selected?.lockOwner);
+}
+async function command(value: BrowserCommand): Promise<boolean> {
+  const changesProfile = ['create-profile', 'switch-profile', 'delete-profile', 'save-session'].includes(value.action);
+  if (changesProfile && profilePending) return false;
+  if (changesProfile) {
+    profilePending = true;
+    updateProfileControls();
+    element('profile-feedback').hidden = true;
+  }
+  if (value.action === 'save-session') element('storage-feedback').textContent = 'Menyimpan…';
   try {
     const result = await window.browser.command(value);
-    if (!result.ok) showError(result.error);
-  } catch { showError('Koneksi ke browser terputus. Buka ulang Hero.'); }
+    if (!result.ok) {
+      if (changesProfile) {
+        element('profile-feedback').textContent = result.error;
+        element('profile-feedback').hidden = false;
+      } else showError(result.error);
+    }
+    if (value.action === 'save-session') element('storage-feedback').textContent = result.ok ? 'Tersimpan di perangkat' : 'Penyimpanan belum selesai.';
+    return result.ok;
+  } catch {
+    showError('Koneksi ke browser terputus. Buka ulang Hero.');
+    return false;
+  } finally {
+    if (changesProfile) {
+      profilePending = false;
+      updateProfileControls();
+      // Restore the actual selection if a switch or deletion was rejected.
+      if (current) element<HTMLSelectElement>('profile-select').value = current.activeProfileId;
+    }
+  }
 }
 
 function reportBounds(): void {
@@ -37,6 +71,23 @@ function reportBounds(): void {
 function render(state: BrowserState): void {
   const previousId = current?.activeTabId;
   current = state;
+  const profileSelect = element<HTMLSelectElement>('profile-select');
+  const optionKey = state.profiles.map(profile => profile.id + ':' + profile.name).join('|');
+  if (profileSelect.dataset.options !== optionKey) {
+    profileSelect.replaceChildren(...state.profiles.map(profile => {
+      const option = document.createElement('option');
+      option.value = profile.id;
+      option.textContent = profile.name;
+      return option;
+    }));
+    profileSelect.dataset.options = optionKey;
+  }
+  profileSelect.value = state.activeProfileId;
+  const profile = state.profiles.find(profile => profile.id === state.activeProfileId);
+  element('active-profile-name').textContent = profile?.name ?? 'Profil';
+  element('profile-control').textContent = profile?.lockOwner ? 'Dikunci tugas AI' : 'Manual';
+  updateProfileControls();
+
   const active = state.tabs.find(tab => tab.id === state.activeTabId);
   if (!active) return;
   // Keep existing tab buttons while loading events arrive, preserving focus and clicks.
@@ -134,6 +185,21 @@ document.addEventListener('keydown', event => {
     void command({ action: event.key === 'ArrowLeft' ? 'back' : 'forward' });
   }
 });
+
+element('profile-select').addEventListener('change', () => {
+  element('storage-feedback').textContent = 'Data situs disimpan di perangkat.';
+  void command({ action: 'switch-profile', profileId: element<HTMLSelectElement>('profile-select').value });
+});
+element('profile-form').addEventListener('submit', event => {
+  event.preventDefault();
+  void command({ action: 'create-profile', name: element<HTMLInputElement>('profile-name').value }).then(ok => {
+    if (ok) element<HTMLInputElement>('profile-name').value = '';
+  });
+});
+element('delete-profile').addEventListener('click', () => {
+  if (current) void command({ action: 'delete-profile', profileId: current.activeProfileId });
+});
+element('save-session').addEventListener('click', () => { void command({ action: 'save-session' }); });
 new ResizeObserver(reportBounds).observe(surface);
 window.browser.onState(render);
 window.browser.onFocusAddress(focusAddress);

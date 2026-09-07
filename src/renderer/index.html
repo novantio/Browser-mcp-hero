@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'">
-  <title>Hero Browser</title>
+  <title>Hero Browser — Profil persisten</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -13,7 +13,7 @@
       <div class="wordmark"><span class="brand-mark">h<span>↗</span></span><span>hero<span class="brand-dot">.</span></span></div>
       <div id="tabs" class="tabs" role="tablist" aria-label="Tab browser"></div>
       <button id="new-tab" class="icon-button add-tab" aria-label="Buka tab baru" title="Tab baru (Ctrl+T)">+</button>
-      <div class="mode-label"><span class="status-dot"></span> Kontrol manual</div>
+      <label class="profile-picker"><span class="status-dot"></span><span>Profil</span><select id="profile-select" aria-label="Profil aktif"></select></label>
     </div>
     <div class="navigation-row">
       <div class="navigation-buttons">
@@ -33,7 +33,7 @@
   <div class="workspace">
     <main id="browser-surface" class="browser-surface">
       <section id="welcome" class="welcome">
-        <div class="welcome-top"><span><span class="tiny-orbit"></span> RUANG JELAJAHMU</span><span>HERO / 0.1</span></div>
+        <div class="welcome-top"><span><span class="tiny-orbit"></span> RUANG JELAJAHMU</span><span>HERO / 0.2</span></div>
         <div class="welcome-body">
           <div class="hero-emblem" aria-hidden="true"><span>h</span><i>↗</i></div>
           <p class="eyebrow">DIMULAI DARI RASA INGIN TAHU</p>
@@ -45,8 +45,8 @@
             <button type="submit" aria-label="Mulai menjelajah">↗</button>
           </form>
           <div class="quick-links" aria-label="Pintasan situs">
-            <button data-url="https://github.com"><span class="site-icon github">⌘</span><span>GitHub</span><span class="link-arrow">↗</span></button>
-            <button data-url="https://www.wikipedia.org"><span class="site-icon wiki">W</span><span>Wikipedia</span><span class="link-arrow">↗</span></button>
+            <button data-url="https://www.instagram.com"><span class="site-icon instagram">◎</span><span>Instagram</span><span class="link-arrow">↗</span></button>
+            <button data-url="https://www.youtube.com"><span class="site-icon youtube">▷</span><span>YouTube</span><span class="link-arrow">↗</span></button>
             <button data-url="https://www.electronjs.org"><span class="site-icon electron">◎</span><span>Electron</span><span class="link-arrow">↗</span></button>
           </div>
         </div>
@@ -66,14 +66,20 @@
       <div class="panel-heading"><span>Ruang kerja</span><span class="panel-tag">LOKAL</span></div>
       <div class="session-card">
         <div class="session-icon" aria-hidden="true">◈</div>
-        <div><h2>Sesi penjelajahan</h2><p>Ruang browser saat ini</p></div>
+        <div><h2 id="active-profile-name">Default</h2><p>Login dan data terpisah</p></div>
         <span class="status-dot"></span>
       </div>
-      <dl class="session-facts"><div><dt>Tab terbuka</dt><dd id="tab-count">1</dd></div><div><dt>Kontrol</dt><dd>Manual</dd></div><div><dt>Penyimpanan</dt><dd>Sementara</dd></div></dl>
+      <dl class="session-facts"><div><dt>Tab di profil ini</dt><dd id="tab-count">1</dd></div><div><dt>Kontrol</dt><dd id="profile-control">Manual</dd></div><div><dt>Penyimpanan</dt><dd class="persistent-label">Permanen</dd></div></dl>
+      <div class="profile-tools">
+        <div class="profile-actions"><button id="save-session">Simpan sekarang</button><button id="delete-profile" aria-label="Hapus profil" title="Hapus profil beserta data situs">Hapus profil</button></div>
+        <p id="storage-feedback" role="status">Data situs disimpan di perangkat.</p>
+        <form id="profile-form"><label for="profile-name">PROFIL BARU</label><div><input id="profile-name" aria-label="Nama profil baru" placeholder="Misalnya: Akun kerja" maxlength="40" required autocomplete="off"><button id="create-profile" type="submit" aria-label="Buat profil" title="Buat profil">+</button></div></form>
+        <p id="profile-feedback" role="status" hidden></p>
+      </div>
       <div class="section-divider"></div>
       <div class="section-label">ASISTEN AI <span>TAHAP BERIKUTNYA</span></div>
-      <div class="assistant-state"><div class="assistant-orbit" aria-hidden="true">✳</div><h2>Tempat untuk kolaborasi.</h2><p>Koneksi MCP dan aktivitas AI akan hadir di tahap berikutnya. Sekarang, jelajahi web seperti biasa.</p><span class="offline-badge"><span></span> MCP belum tersedia</span></div>
-      <div class="panel-bottom"><span class="shortcut-heading">SEDIKIT PINTASAN</span><div><span>Tab baru</span><kbd>Ctrl T</kbd></div><div><span>Pilih alamat</span><kbd>Ctrl L</kbd></div><div><span>Tutup tab</span><kbd>Ctrl W</kbd></div><p>Hero Browser <span>Milestone 01</span></p></div>
+      <div class="assistant-state"><div class="assistant-orbit" aria-hidden="true">✳</div><h2>Tempat untuk kolaborasi.</h2><p>Profilmu sudah siap. Koneksi MCP dan aktivitas AI akan hadir di tahap berikutnya.</p><span class="offline-badge"><span></span> MCP belum tersedia</span></div>
+      <div class="panel-bottom"><span class="shortcut-heading">SEDIKIT PINTASAN</span><div><span>Tab baru</span><kbd>Ctrl T</kbd></div><div><span>Pilih alamat</span><kbd>Ctrl L</kbd></div><div><span>Tutup tab</span><kbd>Ctrl W</kbd></div><p>Hero Browser <span>Profil persisten</span></p></div>
     </aside>
   </div>
   <footer class="status-bar"><span id="page-status" role="status">Tab baru</span><span>HERO BROWSER <span class="footer-separator">/</span> HUMAN FIRST</span></footer>

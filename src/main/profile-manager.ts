@@ -120,7 +120,7 @@ export class ProfileManager {
   }
   lockProfile(id: string, taskId: string): void {
     this.requireProfile(id);
-    if (!taskId || taskId.length > 128) return fail('INVALID_TASK', 'Identitas tugas tidak valid.');
+    if (typeof taskId !== 'string' || !taskId || taskId.length > 128) return fail('INVALID_TASK', 'Identitas tugas tidak valid.');
     const owner = this.locks.get(id);
     if (owner && owner !== taskId) return fail('PROFILE_BUSY', 'Profil sedang digunakan tugas AI lain.');
     this.locks.set(id, taskId);
