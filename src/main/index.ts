@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, clipboard } from 'electron';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { BrowserManager } from './browser-manager';
@@ -28,12 +28,75 @@ let sessions: SessionManager;
 let tasks: TaskManager;
 let auditLogger: AuditLogger;
 let bridge: McpBridge | null = null;
+let bridgePort: number | null = null;
 let store: DataStore;
 let analysis: DataAnalysis;
 let jobRunner: JobRunner;
 let recorder: InteractionRecorder;
 let commandBusy = false;
 let mcpStatus: "starting" | "ready" | "failed" = "starting";
+
+function setupApplicationMenu(window: BrowserWindow): void {
+  const mcpScriptPath = path.resolve(__dirname, '../mcp/index.js').replace(/\\/g, '/');
+  const template: Electron.MenuItemConstructorOptions[] = [
+    {
+      label: 'Hero Browser',
+      submenu: [
+        {
+          label: 'Integrasi MCP & AI Agent...',
+          accelerator: 'CmdOrCtrl+Shift+M',
+          click: () => {
+            window.webContents.send('browser:open-mcp-modal');
+          },
+        },
+        {
+          label: 'Salin Konfigurasi MCP (Claude / Cursor)',
+          click: () => {
+            const cfg = JSON.stringify({
+              mcpServers: {
+                'hero-browser': {
+                  command: 'node',
+                  args: [mcpScriptPath],
+                },
+              },
+            }, null, 2);
+            clipboard.writeText(cfg);
+            window.webContents.send('browser:activity', {
+              id: 'menu-copy-' + Date.now(),
+              timestamp: Date.now(),
+              action: 'mcp.copyConfig',
+              summary: 'Konfigurasi MCP disalin ke clipboard',
+              status: 'success',
+            });
+          },
+        },
+        { type: 'separator' },
+        { role: 'quit', label: 'Keluar Hero Browser' },
+      ],
+    },
+    {
+      label: 'Navigasi',
+      submenu: [
+        { label: 'Tab Baru', accelerator: 'CmdOrCtrl+T', click: () => manager?.newTab() },
+        { label: 'Pilih Alamat', accelerator: 'CmdOrCtrl+L', click: () => manager?.focusAddress() },
+        { label: 'Muat Ulang', accelerator: 'CmdOrCtrl+R', click: () => manager?.execute({ action: 'reload' }) },
+      ],
+    },
+    {
+      label: 'Integrasi AI',
+      submenu: [
+        {
+          label: 'Buka Pengaturan MCP...',
+          accelerator: 'F1',
+          click: () => {
+            window.webContents.send('browser:open-mcp-modal');
+          },
+        },
+      ],
+    },
+  ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
 const runtimeState = (browser: BrowserManager) => ({
   ...browser.snapshot(),
   tasks: tasks.listTasks(),
@@ -124,6 +187,39 @@ ipcMain.handle('browser:command', async (event, value: unknown): Promise<Command
   } finally { if (ownsCommand) commandBusy = false; }
 });
 ipcMain.handle('browser:bounds', (event, value: unknown) => requireTrustedSender(event).setBounds(parseBounds(value)));
+ipcMain.handle('browser:get-mcp-config', event => {
+  requireTrustedSender(event);
+  const mcpScriptPath = path.resolve(__dirname, '../mcp/index.js').replace(/\\/g, '/');
+  const projectDir = path.resolve(__dirname, '../..').replace(/\\/g, '/');
+  return {
+    mcpScriptPath,
+    projectDir,
+    claudeDesktopConfig: {
+      mcpServers: {
+        'hero-browser': {
+          command: 'node',
+          args: [mcpScriptPath],
+        },
+      },
+    },
+    geminiAntigravityConfig: {
+      'hero-browser': {
+        command: 'node',
+        args: [mcpScriptPath],
+      },
+    },
+    cliCommand: `node "${mcpScriptPath}"`,
+    bridgePort: bridgePort ?? undefined,
+  };
+});
+ipcMain.handle('browser:copy-clipboard', (event, text: unknown) => {
+  requireTrustedSender(event);
+  if (typeof text === 'string') {
+    clipboard.writeText(text);
+    return true;
+  }
+  return false;
+});
 
 ipcMain.handle('data:overview', event => {
   requireTrustedSender(event);
@@ -249,7 +345,6 @@ if (!app.requestSingleInstanceLock()) {
     mainWindow?.focus();
   });
   void app.whenReady().then(async () => {
-    Menu.setApplicationMenu(null);
     profiles = new ProfileManager(app.getPath('userData'));
     sessions = new SessionManager(profiles);
     tasks = new TaskManager(profiles);
@@ -261,6 +356,7 @@ if (!app.requestSingleInstanceLock()) {
       }
     });
     await createWindow();
+    if (mainWindow) setupApplicationMenu(mainWindow);
     store = new DataStore(app.getPath('userData'));
     analysis = new DataAnalysis(store);
     jobRunner = new JobRunner(store, manager!, tasks, profiles);
@@ -277,8 +373,13 @@ if (!app.requestSingleInstanceLock()) {
       analysis,
       recorder,
     });
-    void bridge.start().then(() => { mcpStatus = 'ready'; publishRuntime(); }).catch(() => {
-      mcpStatus = 'failed'; publishRuntime();
+    void bridge.start().then(res => {
+      bridgePort = res.port;
+      mcpStatus = 'ready';
+      publishRuntime();
+    }).catch(() => {
+      mcpStatus = 'failed';
+      publishRuntime();
     });
     app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) void createWindow(); });
   }).catch(error => {

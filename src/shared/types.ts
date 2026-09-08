@@ -61,6 +61,27 @@ export interface ActivityEvent {
   detail?: string;
 }
 
+export interface McpIntegrationConfig {
+  mcpScriptPath: string;
+  projectDir: string;
+  claudeDesktopConfig: {
+    mcpServers: {
+      'hero-browser': {
+        command: string;
+        args: string[];
+      };
+    };
+  };
+  geminiAntigravityConfig: {
+    'hero-browser': {
+      command: string;
+      args: string[];
+    };
+  };
+  cliCommand: string;
+  bridgePort?: number;
+}
+
 export interface BrowserAPI {
   getState(): Promise<BrowserState>;
   command(command: BrowserCommand): Promise<CommandResult>;
@@ -69,6 +90,9 @@ export interface BrowserAPI {
   onFocusAddress(listener: () => void): () => void;
   onHumanIntervention(listener: (req: HumanInterventionRequest | null) => void): () => void;
   onActivity(listener: (event: ActivityEvent) => void): () => void;
+  getMcpConfig?(): Promise<McpIntegrationConfig>;
+  copyToClipboard?(text: string): Promise<boolean>;
+  onOpenMcpModal?(listener: () => void): () => void;
   dataOverview?(): Promise<Record<string, unknown>>;
   dataJobs?(): Promise<unknown[]>;
   dataDatasets?(): Promise<unknown[]>;

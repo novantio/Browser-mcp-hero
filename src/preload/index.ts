@@ -25,6 +25,13 @@ const api: BrowserAPI = {
     ipcRenderer.on('browser:activity', handler);
     return () => ipcRenderer.removeListener('browser:activity', handler);
   },
+  getMcpConfig: () => ipcRenderer.invoke('browser:get-mcp-config'),
+  copyToClipboard: (text: string) => ipcRenderer.invoke('browser:copy-clipboard', text),
+  onOpenMcpModal(listener) {
+    const handler = () => listener();
+    ipcRenderer.on('browser:open-mcp-modal', handler);
+    return () => ipcRenderer.removeListener('browser:open-mcp-modal', handler);
+  },
   dataOverview: () => ipcRenderer.invoke('data:overview'),
   dataJobs: () => ipcRenderer.invoke('data:jobs'),
   dataDatasets: () => ipcRenderer.invoke('data:datasets'),

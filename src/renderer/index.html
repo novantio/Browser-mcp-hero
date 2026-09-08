@@ -27,6 +27,7 @@
         <kbd>Ctrl L</kbd>
       </form>
       <button id="toggle-panel" class="panel-button" aria-expanded="true" aria-controls="side-panel" title="Tampilkan atau sembunyikan panel sesi"><span aria-hidden="true">◫</span> Ruang kerja</button>
+      <button id="btn-mcp-menu" class="panel-button mcp-menu-btn" title="Pengaturan &amp; Salin Konfigurasi Integrasi MCP Server" aria-haspopup="dialog"><span aria-hidden="true">⚡</span> Integrasi MCP</button>
     </div>
     <div id="intervention-banner" class="intervention-banner" hidden>
       <div class="intervention-content">
@@ -114,6 +115,7 @@
               <span class="runtime-sub" id="runtime-endpoint">127.0.0.1 (Local RPC)</span>
             </div>
           </div>
+          <button id="btn-open-mcp-modal" class="action-btn-full mcp-action-btn" type="button"><span aria-hidden="true">📋</span> Salin Konfigurasi MCP</button>
           <div id="task-list" class="task-list" aria-live="polite"></div>
           <div class="activity-section">
             <div class="activity-header">
@@ -248,6 +250,55 @@
   </div>
   <footer class="status-bar"><span id="page-status" role="status">Tab baru</span><span>HERO BROWSER <span class="footer-separator">/</span> HUMAN FIRST</span></footer>
   <div id="toast" role="alert" hidden></div>
+
+  <!-- Modal Dialog: Integrasi MCP & AI Agent -->
+  <div id="mcp-modal" class="modal-backdrop" hidden>
+    <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="mcp-modal-title">
+      <div class="modal-header">
+        <div class="modal-title-wrap">
+          <span class="modal-icon" aria-hidden="true">⚡</span>
+          <div>
+            <h2 id="mcp-modal-title">Integrasi MCP &amp; AI Agent</h2>
+            <p class="modal-subtitle">Hubungkan Hero Browser ke Claude Desktop, Cursor, Antigravity, Cline, atau Agent AI Anda.</p>
+          </div>
+        </div>
+        <button id="close-mcp-modal" class="modal-close-button" aria-label="Tutup dialog" title="Tutup (Esc)">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="mcp-client-tabs">
+          <button id="tab-client-claude" class="mcp-client-tab active" type="button">Claude Desktop / Cursor</button>
+          <button id="tab-client-antigravity" class="mcp-client-tab" type="button">Antigravity / Gemini</button>
+          <button id="tab-client-cli" class="mcp-client-tab" type="button">Command CLI</button>
+        </div>
+
+        <div class="mcp-code-container">
+          <div class="code-header">
+            <span id="mcp-config-filename" class="code-filename">claude_desktop_config.json</span>
+            <button id="btn-copy-mcp-config" class="copy-code-btn" type="button" title="Salin ke clipboard">
+              <span id="copy-icon" aria-hidden="true">📋</span> <span id="copy-text">Salin JSON</span>
+            </button>
+          </div>
+          <pre><code id="mcp-code-display" class="code-block"></code></pre>
+        </div>
+
+        <div class="mcp-info-box">
+          <div class="info-item">
+            <strong>Lokasi File:</strong>
+            <span id="mcp-config-location">%APPDATA%\Claude\claude_desktop_config.json</span>
+          </div>
+          <div class="info-item">
+            <strong>Total Tool:</strong>
+            <span>85 Tools (Otomasi Halaman, Form Intelligence, Auto-Healing, Upload/Download, Web Data OS)</span>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <span class="modal-footer-hint">💡 Tip: Setelah menyimpan konfigurasi di aplikasi AI pilihan Anda, restart aplikasi tersebut untuk mulai menggunakan Hero Browser.</span>
+        <button id="btn-done-mcp-modal" class="primary-button" type="button">Selesai</button>
+      </div>
+    </div>
+  </div>
+
   <script type="module" src="index.js"></script>
 </body>
 </html>
