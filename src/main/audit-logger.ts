@@ -171,6 +171,8 @@ export class AuditLogger {
         return `Drag and drop gesture`;
       case 'tasks.create':
         return `Memulai tugas otomasi`;
+      case 'profiles.unlock':
+        return `Buka paksa kunci profil ${params.profileId || ''}`;
       case 'tasks.complete':
         return `Tugas otomasi selesai`;
       case 'tasks.fail':

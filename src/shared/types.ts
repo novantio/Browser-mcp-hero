@@ -24,6 +24,7 @@ export interface AutomationTask {
   status: TaskStatus;
   createdAt: number;
   updatedAt: number;
+  ttlMs?: number;
   error?: string;
   intervention?: {
     reason: string;

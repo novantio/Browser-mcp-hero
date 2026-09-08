@@ -139,11 +139,21 @@ export class McpBridge {
   private async dispatch(method: string, params: Record<string, unknown>, requestSignal: AbortSignal): Promise<unknown> {
     const { browser, profiles, tasks, store, jobRunner, analysis, recorder } = this.config;
     const taskId = String(params.taskId || '');
+    if (taskId) tasks.touchTask(taskId);
     if (method === 'ping') return { ok: true, activeProfileId: profiles.activeProfileId, tabCount: browser.snapshot().tabs.length };
     if (method === 'profiles.list') return profiles.listProfiles().map(p => ({
       ...p, isActive: p.id === profiles.activeProfileId, isLocked: profiles.isLocked(p.id),
     }));
-    if (method === 'tasks.create') return tasks.createTask(String(params.profileId || profiles.activeProfileId), taskId || undefined);
+    if (method === 'profiles.unlock') {
+      tasks.forceUnlockProfile(String(params.profileId));
+      return { ok: true, profileId: String(params.profileId) };
+    }
+    if (method === 'tasks.create') {
+      const targetProfile = String(params.profileId || profiles.activeProfileId);
+      if (params.force) tasks.forceUnlockProfile(targetProfile);
+      const ttlSec = params.ttlSeconds !== undefined ? Number(params.ttlSeconds) : 120;
+      return tasks.createTask(targetProfile, taskId || undefined, ttlSec);
+    }
     if (method === 'tasks.list') return tasks.listTasks();
     if (method === 'tasks.get') {
       const task = tasks.getTask(taskId);

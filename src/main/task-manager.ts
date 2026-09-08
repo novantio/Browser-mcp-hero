@@ -14,8 +14,13 @@ export class TaskManager {
   private readonly interventions = new Map<string, { token: string; timer: ReturnType<typeof setTimeout> }>();
   private onInterventionListener?: (request: HumanInterventionRequest | null) => void;
   private onChange?: () => void;
+  private sweepTimer?: ReturnType<typeof setInterval>;
 
-  constructor(private readonly profiles: ProfileManager) {}
+  constructor(private readonly profiles: ProfileManager) {
+    this.sweepTimer = setInterval(() => this.sweepExpiredTasks(), 3000);
+    if (this.sweepTimer.unref) this.sweepTimer.unref();
+  }
+
   setChangeListener(listener: () => void): void { this.onChange = listener; }
   setInterventionListener(listener: (request: HumanInterventionRequest | null) => void): void {
     this.onInterventionListener = listener;
@@ -33,7 +38,7 @@ export class TaskManager {
     if (!task) throw new RpcError('TASK_NOT_FOUND', 'Tugas tidak ditemukan.');
     return task;
   }
-  createTask(profileId: string, customId?: string): AutomationTask {
+  createTask(profileId: string, customId?: string, ttlSeconds = 120): AutomationTask {
     const id = customId || randomUUID();
     if (this.tasks.has(id)) throw new RpcError('TASK_EXISTS', 'ID tugas sudah digunakan.');
     if (this.tasks.size >= 500) {
@@ -43,10 +48,42 @@ export class TaskManager {
     }
     this.profiles.lockProfile(profileId, id);
     const now = Date.now();
-    this.tasks.set(id, { id, profileId, status: 'RUNNING', createdAt: now, updatedAt: now });
+    const ttlMs = ttlSeconds > 0 ? ttlSeconds * 1000 : 0;
+    this.tasks.set(id, { id, profileId, status: 'RUNNING', createdAt: now, updatedAt: now, ttlMs });
     this.controllers.set(id, new AbortController());
     this.publish();
     return this.getTask(id)!;
+  }
+  touchTask(id: string): void {
+    const task = this.tasks.get(id);
+    if (task && task.status === 'RUNNING') {
+      task.updatedAt = Date.now();
+    }
+  }
+  forceUnlockProfile(profileId: string): void {
+    const owner = this.profiles.getLockOwner(profileId);
+    if (owner && this.tasks.has(owner)) {
+      const task = this.tasks.get(owner)!;
+      if (['RUNNING', 'PAUSED', 'WAITING_FOR_HUMAN'].includes(task.status)) {
+        this.cancelTask(owner);
+        return;
+      }
+    }
+    this.profiles.forceUnlock(profileId);
+  }
+  sweepExpiredTasks(): void {
+    const now = Date.now();
+    for (const task of this.tasks.values()) {
+      if (task.status === 'RUNNING' && task.ttlMs && task.ttlMs > 0) {
+        if (now - task.updatedAt > task.ttlMs) {
+          try {
+            this.failTask(task.id, 'Waktu tunggu inaktivitas tugas habis (inactivity timeout).');
+          } catch {
+            // Task might have already finished
+          }
+        }
+      }
+    }
   }
   getTask(id: string): AutomationTask | null {
     const task = this.tasks.get(id);
@@ -57,6 +94,7 @@ export class TaskManager {
     const task = this.requireTask(id);
     if (task.status !== 'RUNNING') throw new RpcError('TASK_NOT_RUNNING', 'Tugas dijeda atau sudah berakhir.');
     if (this.profiles.getLockOwner(task.profileId) !== id) throw new RpcError('TASK_NOT_OWNER', 'Tugas tidak memiliki sesi ini.');
+    task.updatedAt = Date.now();
     return this.getTask(id)!;
   }
   signal(id: string): AbortSignal { this.assertRunnable(id); return this.controllers.get(id)!.signal; }
@@ -118,6 +156,10 @@ export class TaskManager {
   failTask(id: string, error: string): void { this.finish(id, 'FAILED', error); }
   cancelTask(id: string): void { this.finish(id, 'CANCELLED'); }
   dispose(): void {
+    if (this.sweepTimer) {
+      clearInterval(this.sweepTimer);
+      this.sweepTimer = undefined;
+    }
     for (const task of this.listTasks()) {
       if (['RUNNING', 'PAUSED', 'WAITING_FOR_HUMAN'].includes(task.status)) this.cancelTask(task.id);
     }

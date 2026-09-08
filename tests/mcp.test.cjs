@@ -209,6 +209,27 @@ test('McpBridge provides secure local RPC and manages bridge file', async () => 
       const afterComplete = await rpc('tasks.get', { taskId: 'rpc-task-1' });
       assert.equal(afterComplete.body.result.status, 'COMPLETED');
 
+      // 8. Stale lock recovery & force unlock
+      await rpc('tasks.create', { profileId: 'default', taskId: 'rpc-task-stale' });
+      assert.equal(profiles.isLocked('default'), true);
+
+      // Creating another task on default fails with PROFILE_BUSY
+      const busyRes = await rpc('tasks.create', { profileId: 'default', taskId: 'rpc-task-blocked' });
+      assert.equal(busyRes.body.ok, false);
+      assert.equal(busyRes.body.code, 'PROFILE_BUSY');
+
+      // Force unlock via profiles.unlock
+      const unlockRes = await rpc('profiles.unlock', { profileId: 'default' });
+      assert.equal(unlockRes.statusCode, 200);
+      assert.equal(profiles.isLocked('default'), false);
+
+      // Or creating with force: true automatically unlocks previous stale task
+      await rpc('tasks.create', { profileId: 'default', taskId: 'rpc-task-stale-2' });
+      const forceTaskRes = await rpc('tasks.create', { profileId: 'default', taskId: 'rpc-task-new', force: true });
+      assert.equal(forceTaskRes.statusCode, 200);
+      assert.equal(forceTaskRes.body.result.id, 'rpc-task-new');
+      await rpc('tasks.complete', { taskId: 'rpc-task-new' });
+
       // Stop bridge
       bridge.stop();
       assert.equal(existsSync(bridgeFile), false);
@@ -263,6 +284,32 @@ test('AuditLogger scrubs secrets, records to audit.log, and emits activity event
     assert.equal(lines[0].params.text, '••••••••');
     assert.ok(!lines[1].params.url.includes('secret_code_xyz'));
     assert.ok(lines[1].params.url.includes('code=[REDACTED]'));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('TaskManager auto-releases stale locks on inactivity TTL', async () => {
+  const dir = makeTempDir();
+  try {
+    const profiles = new ProfileManager(dir);
+    const tasks = new TaskManager(profiles);
+
+    // Create task with 1 second TTL
+    const task = tasks.createTask('instagram', 'task-quick-expire', 1);
+    assert.equal(task.ttlMs, 1000);
+    assert.equal(profiles.isLocked('instagram'), true);
+
+    // Sleep past TTL and sweep
+    await new Promise(resolve => setTimeout(resolve, 3500));
+
+    // Profile should now be unlocked and task FAILED
+    const expired = tasks.getTask('task-quick-expire');
+    assert.equal(expired.status, 'FAILED');
+    assert.ok(expired.error.includes('inactivity timeout'));
+    assert.equal(profiles.isLocked('instagram'), false);
+
+    tasks.dispose();
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

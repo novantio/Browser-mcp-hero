@@ -24,8 +24,18 @@ export class SessionManager {
     const browserSession = session.fromPartition('persist:hero-' + profileId);
     const cleanUserAgent = browserSession.getUserAgent().replace(/Electron\/[0-9.]+\s*/g, '');
     browserSession.setUserAgent(cleanUserAgent);
-    browserSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
-    browserSession.setPermissionCheckHandler(() => false);
+    browserSession.setPermissionRequestHandler((_contents, permission, callback) => {
+      if (['fullscreen', 'clipboard-read', 'clipboard-sanitized-write'].includes(permission)) {
+        return callback(true);
+      }
+      callback(false);
+    });
+    browserSession.setPermissionCheckHandler((_contents, permission) => {
+      if (['fullscreen', 'clipboard-read', 'clipboard-sanitized-write'].includes(permission)) {
+        return true;
+      }
+      return false;
+    });
     this.downloadManager.attachSession(browserSession);
 
     // Automatically persist session cookies across restarts by giving them an expiration date

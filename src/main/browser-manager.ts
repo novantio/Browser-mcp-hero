@@ -18,6 +18,7 @@ import type { ExtractionSpec, Json } from '../shared/data-contracts';
 import { convert, setPath } from './data/processing';
 import { NetworkIntelligence } from './data/network-intelligence';
 import { ConsoleMonitor } from './console-monitor';
+import { STEALTH_SCRIPT } from './stealth';
 
 export interface ExpectCondition { selector?: string; text?: string; url?: string; timeoutMs?: number }
 interface TabEntry { state: BrowserTab; view: WebContentsView | null; profileId: string }
@@ -79,12 +80,29 @@ export class BrowserManager {
     const view = new WebContentsView({ webPreferences: {
       session: this.sessions.getSession(tab.profileId), nodeIntegration: false, contextIsolation: true,
       sandbox: true, webSecurity: true, allowRunningInsecureContent: false,
-      navigateOnDragDrop: false, spellcheck: true,
+      navigateOnDragDrop: false, spellcheck: true, backgroundThrottling: false,
     } });
     tab.view = view;
     this.window.contentView.addChildView(view);
     view.setBackgroundColor('#ffffff');
     const contents = view.webContents;
+    // Attach stealth anti-bot evasion
+    if (!contents.debugger.isAttached()) {
+      try { contents.debugger.attach('1.3'); } catch {}
+    }
+    if (contents.debugger.isAttached()) {
+      void contents.debugger.sendCommand('Page.enable').catch(() => {});
+      void contents.debugger.sendCommand('Page.addScriptToEvaluateOnNewDocument', {
+        source: STEALTH_SCRIPT,
+      }).catch(() => {});
+    }
+    const injectStealth = () => {
+      if (!contents.isDestroyed()) {
+        contents.executeJavaScript(STEALTH_SCRIPT).catch(() => {});
+      }
+    };
+    contents.on('dom-ready', injectStealth);
+
     this.consoleMonitor.attach(tab.state.id, contents);
     this.network.attach(contents);
     const update = () => {
@@ -413,7 +431,8 @@ export class BrowserManager {
     selector?: string;
     region?: { x: number; y: number; width: number; height: number };
   }): Promise<string> {
-    if (!this.window.isVisible() || this.window.isMinimized()) {
+    const isHeadless = Boolean((this.window as any)?.isHeadlessMode);
+    if (!isHeadless && (!this.window.isVisible() || this.window.isMinimized())) {
       throw new RpcError('SCREENSHOT_UNAVAILABLE', 'Screenshot tidak tersedia karena jendela tertutup, diminimalkan, atau disembunyikan.');
     }
     const tab = this.active();
@@ -1158,55 +1177,66 @@ export class BrowserManager {
   }
 
   async evaluateSafe(script: string, timeoutMs = 15000): Promise<unknown> {
-    let isExpression = false;
-    try {
-      new Function('return (' + script + ');');
-      isExpression = true;
-    } catch {
-      try {
-        new Function(script);
-      } catch (err) {
-        if (err instanceof SyntaxError) {
-          throw new RpcError('SCRIPT_SYNTAX_ERROR', 'Sintaks JavaScript tidak valid. Perbaiki skrip sebelum mencoba lagi.');
-        }
-      }
+    const contents = this.getActiveWebContents();
+    if (contents.isDestroyed() || contents.isCrashed()) {
+      throw new RpcError('PAGE_CRASHED', 'Halaman tidak dapat mengeksekusi skrip karena telah ditutup atau crash.');
     }
 
-    const contents = this.getActiveWebContents();
-    let wrapped = '';
-    if (isExpression) {
-      wrapped = `(async () => { return (${script}); })()`;
-    } else {
-      let scriptWithReturn = script;
-      if (!/\breturn\b/.test(script)) {
-        const trimmed = script.trim().replace(/;+$/, '');
-        const lastSplit = Math.max(trimmed.lastIndexOf('\n'), trimmed.lastIndexOf(';'));
-        if (lastSplit !== -1) {
-          const prefix = trimmed.slice(0, lastSplit + 1);
-          const lastStatement = trimmed.slice(lastSplit + 1).trim();
-          try {
-            new Function(prefix + '\nreturn (' + lastStatement + ');');
-            scriptWithReturn = prefix + '\nreturn (' + lastStatement + ');';
-          } catch {}
-        }
-      }
-      wrapped = `(async () => { return (async function() { ${scriptWithReturn} })(); })()`;
-    }
-    const evalPromise = contents.executeJavaScript(wrapped);
     let timer: NodeJS.Timeout | undefined;
     const timeoutPromise = new Promise<never>((_, reject) => {
       timer = setTimeout(() => reject(new RpcError('TIMEOUT', 'Batas waktu eksekusi skrip habis.')), timeoutMs);
     });
+
+    const executeViaCdp = async (): Promise<unknown> => {
+      if (!contents.debugger.isAttached()) {
+        try { contents.debugger.attach('1.3'); } catch {}
+      }
+      if (contents.debugger.isAttached()) {
+        const res = (await contents.debugger.sendCommand('Runtime.evaluate', {
+          expression: script,
+          awaitPromise: true,
+          returnByValue: true,
+          userGesture: true,
+          generatePreview: false,
+          replMode: true,
+        })) as {
+          result?: { type?: string; value?: unknown; subtype?: string; description?: string };
+          exceptionDetails?: {
+            text?: string;
+            exception?: { type?: string; subtype?: string; className?: string; description?: string; value?: unknown };
+            lineNumber?: number;
+          };
+        };
+
+        if (res.exceptionDetails) {
+          const className = res.exceptionDetails.exception?.className || '';
+          const desc = res.exceptionDetails.exception?.description || res.exceptionDetails.text || '';
+          if (className === 'SyntaxError' || desc.includes('SyntaxError') || desc.includes('Unexpected token')) {
+            throw new RpcError('SCRIPT_SYNTAX_ERROR', 'Sintaks JavaScript tidak valid. Perbaiki skrip sebelum mencoba lagi.');
+          }
+          throw new RpcError('SCRIPT_EXECUTION_FAILED', 'Eksekusi skrip halaman gagal. Periksa logika skrip dan keadaan halaman.');
+        }
+
+        if (res.result) {
+          if (res.result.type === 'undefined') return null;
+          return res.result.value !== undefined ? res.result.value : null;
+        }
+      }
+
+      // Fallback: evaluate via contents.executeJavaScript
+      return await contents.executeJavaScript(script, true);
+    };
+
     try {
-      const result = await Promise.race([evalPromise, timeoutPromise]);
+      const result = await Promise.race([executeViaCdp(), timeoutPromise]);
       return result === undefined ? null : result;
     } catch (err) {
       if (err instanceof RpcError) throw err;
       const message = String(err && (err as any).message ? (err as any).message : err);
-      if (message.includes('SyntaxError')) {
+      if (message.includes('SyntaxError') || message.includes('Unexpected token')) {
         throw new RpcError('SCRIPT_SYNTAX_ERROR', 'Sintaks JavaScript tidak valid. Perbaiki skrip sebelum mencoba lagi.');
       }
-      if (message.includes('Batas waktu') || message.includes('timed out')) {
+      if (message.includes('TIMEOUT') || message.includes('Batas waktu') || message.includes('timed out')) {
         throw new RpcError('TIMEOUT', 'Batas waktu eksekusi skrip habis.');
       }
       throw new RpcError('SCRIPT_EXECUTION_FAILED', 'Eksekusi skrip halaman gagal. Periksa logika skrip dan keadaan halaman.');

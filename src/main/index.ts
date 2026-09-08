@@ -269,12 +269,15 @@ ipcMain.handle('data:command', async (event, value: unknown) => {
 });
 
 async function createWindow(): Promise<void> {
+  const isHeadless = app.commandLine.hasSwitch('headless') || process.argv.includes('--headless') || process.argv.includes('--quiet');
   const window = new BrowserWindow({
     width: 1440, height: 940, minWidth: 900, minHeight: 620,
     title: 'Hero Browser — Profil persisten', backgroundColor: '#111a2b', show: false, autoHideMenuBar: true,
+    skipTaskbar: isHeadless,
     webPreferences: { preload: path.join(__dirname, '../preload/index.js'),
-      sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true },
+      sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true, backgroundThrottling: false },
   });
+  (window as any).isHeadlessMode = isHeadless;
   mainWindow = window;
   const browser = new BrowserManager(window, state => {
     if (!window.isDestroyed()) window.webContents.send('browser:state-changed', { ...state, tasks: tasks.listTasks(), mcpStatus });
@@ -326,11 +329,13 @@ async function createWindow(): Promise<void> {
     mainWindow = null;
   });
   window.once('ready-to-show', () => {
-    window.show();
-    window.focus();
+    if (!isHeadless) {
+      window.show();
+      window.focus();
+    }
   });
   await window.loadFile(rendererPath);
-  if (!window.isVisible()) {
+  if (!isHeadless && !window.isVisible()) {
     window.show();
     window.focus();
   }

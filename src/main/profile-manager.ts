@@ -185,6 +185,10 @@ export class ProfileManager {
     if (owner && owner !== taskId) return fail('PROFILE_BUSY', 'Hanya pemilik tugas yang dapat membuka kunci profil.');
     this.locks.delete(this.getSessionProfileId(id));
   }
+  forceUnlock(id: string): void {
+    this.requireProfile(id);
+    this.locks.delete(this.getSessionProfileId(id));
+  }
   isLocked(id: string): boolean {
     return this.locks.has(this.getSessionProfileId(id));
   }

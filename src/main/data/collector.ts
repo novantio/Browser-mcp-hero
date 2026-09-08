@@ -58,9 +58,27 @@ export class CollectorEngine {
         consecutiveNoNew = 0;
       }
 
-      // 2. Cek apakah sudah di dasar halaman (end of feed)
+      // 2. Cek apakah sudah di dasar halaman atau kontainer (end of feed)
       const atBottom = await contents.executeJavaScript(`
         (() => {
+          const rowSel = ${JSON.stringify(schema.rowSelector || '')};
+          const target = rowSel ? document.querySelector(rowSel) : null;
+          let container = null;
+          let el = target ? target.parentElement : null;
+          while (el && el !== document.body && el !== document.documentElement) {
+            const style = window.getComputedStyle(el);
+            const overflow = style.overflowY || style.overflow;
+            if (['auto', 'scroll'].includes(overflow) && el.scrollHeight > el.clientHeight + 50) {
+              container = el;
+              break;
+            }
+            el = el.parentElement;
+          }
+
+          if (container) {
+            return (container.scrollTop + container.clientHeight) >= (container.scrollHeight - 50);
+          }
+
           const scrollY = window.scrollY || window.pageYOffset || document.documentElement.scrollTop;
           const windowHeight = window.innerHeight;
           const docHeight = document.documentElement.scrollHeight;
@@ -73,12 +91,45 @@ export class CollectorEngine {
         break;
       }
 
-      // 3. Scroll ke bawah
+      // 3. Scroll ke bawah (kontainer atau window + event wheel)
       await contents.executeJavaScript(`
         (() => {
-          window.scrollBy({ top: 800, behavior: 'smooth' });
+          const rowSel = ${JSON.stringify(schema.rowSelector || '')};
+          const target = rowSel ? document.querySelector(rowSel) : null;
+          let container = null;
+          let el = target ? target.parentElement : null;
+          while (el && el !== document.body && el !== document.documentElement) {
+            const style = window.getComputedStyle(el);
+            const overflow = style.overflowY || style.overflow;
+            if (['auto', 'scroll'].includes(overflow) && el.scrollHeight > el.clientHeight + 50) {
+              container = el;
+              break;
+            }
+            el = el.parentElement;
+          }
+
+          if (container) {
+            container.scrollBy({ top: 800, behavior: 'smooth' });
+            container.dispatchEvent(new WheelEvent('wheel', { deltaY: 800, bubbles: true }));
+          } else {
+            window.scrollBy({ top: 800, behavior: 'smooth' });
+            window.dispatchEvent(new WheelEvent('wheel', { deltaY: 800, bubbles: true }));
+          }
         })()
       `).catch(() => {});
+
+      // Dispatch CDP mouse wheel if debugger is attached for native compositor scroll
+      if (contents.debugger.isAttached()) {
+        try {
+          await contents.debugger.sendCommand('Input.dispatchMouseEvent', {
+            type: 'mouseWheel',
+            x: 400,
+            y: 400,
+            deltaX: 0,
+            deltaY: 800,
+          });
+        } catch {}
+      }
 
       scrolls++;
       // Beri waktu render / network fetch

@@ -144,6 +144,35 @@ const { StdioClientTransport } = require('@modelcontextprotocol/sdk/client/stdio
       });
     }
 
+    await test('evaluate supports top-level await and multi-statement scripts natively', async () => {
+      await reset();
+      const res1 = await action('browser_evaluate', {
+        script: 'await new Promise(r => setTimeout(() => r(42), 50));'
+      });
+      assert.equal(res1, 42);
+
+      const res2 = await action('browser_evaluate', {
+        script: 'const a = [10, 20, 30]; a.reduce((acc, v) => acc + v, 0);'
+      });
+      assert.equal(res2, 60);
+    });
+
+    await test('stealth anti-bot cloaks navigator.webdriver, mocks window.chrome and plugins', async () => {
+      await reset();
+      const stealthCheck = await action('browser_evaluate', {
+        script: `({
+          webdriver: navigator.webdriver,
+          hasChrome: Boolean(window.chrome && window.chrome.runtime),
+          pluginCount: navigator.plugins.length,
+          hasLanguages: Array.isArray(navigator.languages) && navigator.languages.length > 0,
+        })`
+      });
+      assert.equal(stealthCheck.webdriver, undefined);
+      assert.equal(stealthCheck.hasChrome, true);
+      assert.ok(stealthCheck.pluginCount >= 1);
+      assert.equal(stealthCheck.hasLanguages, true);
+    });
+
     await test('click with expect verifies when condition is met', async () => {
       const guest = await reset();
       await action('browser_type', { selector: '#username', text: 'Verified User', clear: true });

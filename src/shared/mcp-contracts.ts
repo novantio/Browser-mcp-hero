@@ -5,7 +5,7 @@ const short = z.string().min(1).max(2000);
 const taskInput = { taskId: id };
 const task = z.object({
   id, profileId: id, status: z.enum(['RUNNING', 'PAUSED', 'WAITING_FOR_HUMAN', 'RESUMING', 'COMPLETED', 'FAILED', 'CANCELLED']),
-  createdAt: z.number(), updatedAt: z.number(), error: z.string().optional(),
+  createdAt: z.number(), updatedAt: z.number(), ttlMs: z.number().optional(), error: z.string().optional(),
   intervention: z.object({ reason: z.string(), message: z.string(), requestedAt: z.number() }).strict().optional(),
 }).strict();
 const profile = z.object({
@@ -307,7 +307,13 @@ export const toolContracts: ToolContract[] = [
   define('browser_list_profiles', 'profiles.list', 'Daftar profil persisten dan pemilik sesi.', {}, z.array(profile)),
   define('browser_create_profile', 'profiles.create', 'Buat profil baru tanpa menghapus profil atau login lama.', { name: z.string().trim().min(1).max(40) }, selected),
   define('browser_switch_profile', 'profiles.switch', 'Aktifkan profil milik task. Mulai task terlebih dahulu.', { ...taskInput, profileId: id }, selected),
-  define('browser_start_task', 'tasks.create', 'Mulai task dan kunci sesi profil. Gunakan ID hasilnya pada setiap perintah browser.', { profileId: id.optional(), taskId: id.optional() }, task),
+  define('browser_unlock_profile', 'profiles.unlock', 'Buka paksa kunci profil yang menggantung (stale lock) jika task klien sebelumnya terputus atau crash.', { profileId: id }, z.object({ ok: z.literal(true), profileId: id }).strict()),
+  define('browser_start_task', 'tasks.create', 'Mulai task dan kunci sesi profil. Gunakan ID hasilnya pada setiap perintah browser. Mendukung batas inaktivitas (ttlSeconds) dan opsi force unlock.', {
+    profileId: id.optional(),
+    taskId: id.optional(),
+    ttlSeconds: z.number().int().min(1).max(86400).optional(),
+    force: z.boolean().optional(),
+  }, task),
   define('browser_list_tasks', 'tasks.list', 'Daftar tugas dan statusnya.', {}, z.array(task)),
   define('browser_get_task_status', 'tasks.get', 'Baca status task.', taskInput, task),
   define('browser_pause_task', 'tasks.pause', 'Jeda task dan hentikan penantian yang sedang berjalan.', taskInput, task),
