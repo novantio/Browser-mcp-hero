@@ -136,19 +136,41 @@ export function clickPageElement(target: { elementId?: number; selector?: string
     return 'ELEMENT_NOT_INTERACTABLE';
   }
 
-  const visibleLeft = Math.max(0, rect.left);
-  const visibleRight = Math.min(window.innerWidth, rect.right);
-  const visibleTop = Math.max(0, rect.top);
-  const visibleBottom = Math.min(window.innerHeight, rect.bottom);
-  if (visibleRight <= visibleLeft || visibleBottom <= visibleTop) {
-    return 'ELEMENT_NOT_INTERACTABLE';
-  }
+  const isDocHidden = Boolean(document.hidden || window.innerWidth <= 0 || window.innerHeight <= 0);
 
-  const cx = (visibleLeft + visibleRight) / 2;
-  const cy = (visibleTop + visibleBottom) / 2;
-  const topEl = document.elementFromPoint(cx, cy);
-  if (!topEl || (topEl !== el && !el.contains(topEl))) {
-    return 'ELEMENT_NOT_INTERACTABLE';
+  if (!isDocHidden) {
+    const visibleLeft = Math.max(0, rect.left);
+    const visibleRight = Math.min(window.innerWidth, rect.right);
+    const visibleTop = Math.max(0, rect.top);
+    const visibleBottom = Math.min(window.innerHeight, rect.bottom);
+    if (visibleRight <= visibleLeft || visibleBottom <= visibleTop) {
+      return 'ELEMENT_NOT_INTERACTABLE';
+    }
+
+    const cx = (visibleLeft + visibleRight) / 2;
+    const cy = (visibleTop + visibleBottom) / 2;
+    const topEl = document.elementFromPoint(cx, cy);
+    if (!topEl || (topEl !== el && !el.contains(topEl))) {
+      return 'ELEMENT_NOT_INTERACTABLE';
+    }
+  } else {
+    // When running in background or hidden window, Chromium suspends compositor rendering
+    // so elementFromPoint often returns null. If it returns an actual overlay, check occlusion;
+    // otherwise do not block the click if element has valid non-zero geometry.
+    const effectiveWidth = window.innerWidth || rect.width;
+    const effectiveHeight = window.innerHeight || rect.height;
+    const visibleLeft = Math.max(0, rect.left);
+    const visibleRight = Math.min(effectiveWidth, rect.right);
+    const visibleTop = Math.max(0, rect.top);
+    const visibleBottom = Math.min(effectiveHeight, rect.bottom);
+    if (visibleRight > visibleLeft && visibleBottom > visibleTop) {
+      const cx = (visibleLeft + visibleRight) / 2;
+      const cy = (visibleTop + visibleBottom) / 2;
+      const topEl = document.elementFromPoint(cx, cy);
+      if (topEl && topEl !== el && !el.contains(topEl)) {
+        return 'ELEMENT_NOT_INTERACTABLE';
+      }
+    }
   }
 
   if (typeof (el as HTMLElement).click === 'function') {

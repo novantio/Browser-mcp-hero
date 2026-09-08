@@ -32,7 +32,7 @@ export function convert(raw:string|null,field:FieldSpec,base:string):Json {
  if(!raw?.trim()){if(field.required)throw new RpcError('EXTRACTION_MISSING','Field wajib tidak ditemukan: '+field.path);return null;}
  const value=clean(raw);let parsed:Json=null;
  if(field.type==='string')parsed=value;
- if(field.type==='url'){try{const u=new URL(value,base);if(!['http:','https:'].includes(u.protocol))throw Error();u.username='';u.password='';u.hash='';u.search='';parsed=u.href;}catch{}}
+ if(field.type==='url'){try{const u=new URL(value,base);if(!['http:','https:'].includes(u.protocol))throw Error();u.username='';u.password='';u.hash='';for(const key of [...u.searchParams.keys()])if(/token|code|secret|auth|key|session|password|credential/i.test(key))u.searchParams.delete(key);parsed=u.href;}catch{}}
  if(field.type==='boolean'){if(/^(true|yes|ya|1)$/i.test(value))parsed=true;else if(/^(false|no|tidak|0)$/i.test(value))parsed=false;}
  if(field.type==='datetime'){const t=Date.parse(value);if(Number.isFinite(t))parsed=new Date(t).toISOString();}
  if(field.type==='integer'||field.type==='number'){

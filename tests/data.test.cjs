@@ -102,6 +102,8 @@ test('processing normalizes text, scrubs PII, and parses schema fields', () => {
 
   const urlField = { path: 'link', selector: '', type: 'url', required: true };
   assert.equal(convert('/profile/test', urlField, 'https://example.com'), 'https://example.com/profile/test');
+  assert.equal(convert('/watch?v=dQw4w9WgXcQ', urlField, 'https://www.youtube.com'), 'https://www.youtube.com/watch?v=dQw4w9WgXcQ');
+  assert.equal(convert('/watch?v=dQw4w9WgXcQ&token=secret123&session=xyz', urlField, 'https://www.youtube.com'), 'https://www.youtube.com/watch?v=dQw4w9WgXcQ');
 
   const boolField = { path: 'verified', selector: '', type: 'boolean', required: false };
   assert.equal(convert('ya', boolField, 'https://example.com'), true);

@@ -18,7 +18,10 @@ export function readSafePage(options: { format?: string; selector?: string; maxL
     try {
       const url = new URL(value, document.baseURI);
       if (!['http:', 'https:'].includes(url.protocol)) return '';
-      url.username = ''; url.password = ''; url.search = ''; url.hash = '';
+      url.username = ''; url.password = ''; url.hash = '';
+      for (const key of [...url.searchParams.keys()]) {
+        if (/token|code|secret|auth|key|session|password|credential/i.test(key)) url.searchParams.delete(key);
+      }
       return url.href;
     } catch { return ''; }
   };
@@ -57,11 +60,28 @@ export function readSafePage(options: { format?: string; selector?: string; maxL
     // Match on the original DOM so selectors using stripped attributes still work.
     const selected = [...document.querySelectorAll(options.selector)].slice(0, options.maxItems ?? 50);
     return selected.flatMap(source => {
+      if (source.matches('script, style, template, noscript, iframe, object, embed, meta, link, input[type="hidden"]')) {
+        return [];
+      }
       const copy = copies[original.indexOf(source as HTMLElement)];
-      if (!copy || (copy !== root && !root.contains(copy))) return [];
+      if (copy && (copy === root || root.contains(copy))) {
+        const attributes: Record<string, string> = {};
+        for (const attr of copy.attributes) attributes[attr.name] = scrub(attr.value);
+        return [{ tag: copy.tagName.toLowerCase(), text: scrub((copy.textContent || '').trim()).slice(0, 1000), attributes }];
+      }
+      const style = getComputedStyle(source);
+      if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
+        return [];
+      }
+      const targetEl = copy || (source as HTMLElement);
       const attributes: Record<string, string> = {};
-      for (const attr of copy.attributes) attributes[attr.name] = scrub(attr.value);
-      return [{ tag: copy.tagName.toLowerCase(), text: scrub((copy.textContent || '').trim()).slice(0, 1000), attributes }];
+      for (const attr of targetEl.attributes) {
+        if (isAllowedAttr(attr.name)) {
+          const val = attr.name === 'href' || attr.name === 'src' ? cleanUrl(attr.value) : attr.value;
+          attributes[attr.name] = scrub(val);
+        }
+      }
+      return [{ tag: targetEl.tagName.toLowerCase(), text: scrub((targetEl.textContent || '').trim()).slice(0, 1000), attributes }];
     });
   }
   let result = '';

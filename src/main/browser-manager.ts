@@ -1096,7 +1096,7 @@ export class BrowserManager {
           for (const field of fields) {
             let el = null;
             if (field.selector && field.selector.trim()) {
-              try { el = row.querySelector(field.selector) || document.querySelector(field.selector); } catch {}
+              try { el = row.querySelector(field.selector); } catch {}
             } else {
               el = row;
             }
@@ -1158,18 +1158,25 @@ export class BrowserManager {
   }
 
   async evaluateSafe(script: string, timeoutMs = 15000): Promise<unknown> {
+    let isExpression = false;
     try {
-      new Function(script);
-    } catch (err) {
-      if (err instanceof SyntaxError) {
-        throw new RpcError('SCRIPT_SYNTAX_ERROR', 'Sintaks JavaScript tidak valid. Perbaiki skrip sebelum mencoba lagi.');
+      new Function('return (' + script + ');');
+      isExpression = true;
+    } catch {
+      try {
+        new Function(script);
+      } catch (err) {
+        if (err instanceof SyntaxError) {
+          throw new RpcError('SCRIPT_SYNTAX_ERROR', 'Sintaks JavaScript tidak valid. Perbaiki skrip sebelum mencoba lagi.');
+        }
       }
     }
 
     const contents = this.getActiveWebContents();
-    const wrapped = `(() => {
-      return Promise.resolve().then(() => eval(${JSON.stringify(script)}));
-    })()`;
+    // Do not use eval() so Trusted Types on sites like YouTube do not block execution
+    const wrapped = isExpression
+      ? `(async () => { return (${script}); })()`
+      : `(async () => { return (async function() { ${script} })(); })()`;
     const evalPromise = contents.executeJavaScript(wrapped);
     let timer: NodeJS.Timeout | undefined;
     const timeoutPromise = new Promise<never>((_, reject) => {
