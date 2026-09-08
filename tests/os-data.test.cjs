@@ -259,6 +259,11 @@ test('MCP Tool Contracts include all Web Data OS tools and browser_evaluate', ()
   assert.ok(toolNames.includes('browser_create_checkpoint'), 'browser_create_checkpoint must be in toolContracts');
   assert.ok(toolNames.includes('browser_rollback_checkpoint'), 'browser_rollback_checkpoint must be in toolContracts');
   assert.ok(toolNames.includes('browser_act'), 'browser_act must be in toolContracts');
+  assert.ok(toolNames.includes('browser_get_cookies'), 'browser_get_cookies must be in toolContracts');
+  assert.ok(toolNames.includes('browser_set_cookie'), 'browser_set_cookie must be in toolContracts');
+  assert.ok(toolNames.includes('browser_get_storage'), 'browser_get_storage must be in toolContracts');
+  assert.ok(toolNames.includes('browser_set_storage'), 'browser_set_storage must be in toolContracts');
+  assert.ok(toolNames.includes('browser_drag_and_drop'), 'browser_drag_and_drop must be in toolContracts');
 
   // Verify Web Data OS tools exist
   const requiredDataTools = [

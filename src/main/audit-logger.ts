@@ -159,6 +159,16 @@ export class AuditLogger {
         return `Kembalikan formulir dari checkpoint (${params.name || ''})`;
       case 'automation.act':
         return `Eksekusi aksi otonom: ${params.intent} ${params.target || ''}`.trim();
+      case 'cookies.get':
+        return `Ambil cookies sesi browser`;
+      case 'cookies.set':
+        return `Setel cookie: ${params.name || 'session'}`;
+      case 'storage.get':
+        return `Baca ${params.type || 'local'}Storage`;
+      case 'storage.set':
+        return `${params.action || 'set'} pada ${params.type || 'local'}Storage`;
+      case 'automation.dragAndDrop':
+        return `Drag and drop gesture`;
       case 'tasks.create':
         return `Memulai tugas otomasi`;
       case 'tasks.complete':

@@ -1173,10 +1173,25 @@ export class BrowserManager {
     }
 
     const contents = this.getActiveWebContents();
-    // Do not use eval() so Trusted Types on sites like YouTube do not block execution
-    const wrapped = isExpression
-      ? `(async () => { return (${script}); })()`
-      : `(async () => { return (async function() { ${script} })(); })()`;
+    let wrapped = '';
+    if (isExpression) {
+      wrapped = `(async () => { return (${script}); })()`;
+    } else {
+      let scriptWithReturn = script;
+      if (!/\breturn\b/.test(script)) {
+        const trimmed = script.trim().replace(/;+$/, '');
+        const lastSplit = Math.max(trimmed.lastIndexOf('\n'), trimmed.lastIndexOf(';'));
+        if (lastSplit !== -1) {
+          const prefix = trimmed.slice(0, lastSplit + 1);
+          const lastStatement = trimmed.slice(lastSplit + 1).trim();
+          try {
+            new Function(prefix + '\nreturn (' + lastStatement + ');');
+            scriptWithReturn = prefix + '\nreturn (' + lastStatement + ');';
+          } catch {}
+        }
+      }
+      wrapped = `(async () => { return (async function() { ${scriptWithReturn} })(); })()`;
+    }
     const evalPromise = contents.executeJavaScript(wrapped);
     let timer: NodeJS.Timeout | undefined;
     const timeoutPromise = new Promise<never>((_, reject) => {
@@ -1212,5 +1227,204 @@ export class BrowserManager {
       this.window.hide();
     }
     this.emit();
+  }
+
+  async getCookies(options: { url?: string; name?: string; domain?: string } = {}): Promise<{
+    cookies: Array<{
+      name: string;
+      value: string;
+      domain?: string;
+      path?: string;
+      secure?: boolean;
+      httpOnly?: boolean;
+      sameSite?: string;
+      expirationDate?: number;
+    }>;
+    count: number;
+  }> {
+    const contents = this.getActiveWebContents();
+    const filter: Electron.CookiesGetFilter = {};
+    if (options.url) filter.url = options.url;
+    else if (contents.getURL()) filter.url = contents.getURL();
+    if (options.name) filter.name = options.name;
+    if (options.domain) filter.domain = options.domain;
+
+    const rawCookies = await contents.session.cookies.get(filter);
+    const cookies = rawCookies.map(c => ({
+      name: c.name,
+      value: c.value,
+      domain: c.domain,
+      path: c.path,
+      secure: c.secure,
+      httpOnly: c.httpOnly,
+      sameSite: c.sameSite,
+      expirationDate: c.expirationDate,
+    }));
+    return { cookies, count: cookies.length };
+  }
+
+  async setCookie(options: {
+    url?: string;
+    name: string;
+    value: string;
+    domain?: string;
+    path?: string;
+    secure?: boolean;
+    httpOnly?: boolean;
+    sameSite?: 'unspecified' | 'no_restriction' | 'lax' | 'strict';
+    expirationDate?: number;
+  }): Promise<{ ok: true; name: string; domain?: string }> {
+    const contents = this.getActiveWebContents();
+    const targetUrl = options.url || contents.getURL();
+    if (!targetUrl || !targetUrl.startsWith('http')) {
+      throw new RpcError('INVALID_INPUT', 'URL valid (http/https) diperlukan untuk menyetel cookie.');
+    }
+    const details: Electron.CookiesSetDetails = {
+      url: targetUrl,
+      name: options.name,
+      value: options.value,
+      domain: options.domain,
+      path: options.path || '/',
+      secure: options.secure,
+      httpOnly: options.httpOnly,
+      sameSite: options.sameSite,
+      expirationDate: options.expirationDate,
+    };
+    try {
+      await contents.session.cookies.set(details);
+      await contents.session.cookies.flushStore();
+      return { ok: true, name: options.name, domain: options.domain };
+    } catch (err) {
+      throw new RpcError('ACTION_FAILED', `Gagal menyetel cookie "${options.name}": ${(err as any)?.message || String(err)}`);
+    }
+  }
+
+  async getStorage(options: { type?: 'local' | 'session'; key?: string } = {}): Promise<{
+    type: 'local' | 'session';
+    entries: Record<string, string>;
+    count: number;
+  }> {
+    const contents = this.getActiveWebContents();
+    const storageType = options.type === 'session' ? 'sessionStorage' : 'localStorage';
+    const result = (await contents.executeJavaScript(`
+      (() => {
+        try {
+          const store = window[${JSON.stringify(storageType)}];
+          if (!store) return { entries: {}, count: 0 };
+          const keyFilter = ${JSON.stringify(options.key || '')};
+          const entries = {};
+          if (keyFilter) {
+            const val = store.getItem(keyFilter);
+            if (val !== null) entries[keyFilter] = val;
+          } else {
+            for (let i = 0; i < store.length; i++) {
+              const k = store.key(i);
+              if (k !== null) entries[k] = store.getItem(k) ?? '';
+            }
+          }
+          return { entries, count: Object.keys(entries).length };
+        } catch {
+          return { entries: {}, count: 0 };
+        }
+      })()
+    `)) as { entries: Record<string, string>; count: number };
+    return { type: options.type === 'session' ? 'session' : 'local', entries: result.entries, count: result.count };
+  }
+
+  async setStorage(options: {
+    type?: 'local' | 'session';
+    action?: 'set' | 'remove' | 'clear';
+    key?: string;
+    value?: string;
+  }): Promise<{ ok: true; action: 'set' | 'remove' | 'clear'; type: 'local' | 'session' }> {
+    const contents = this.getActiveWebContents();
+    const storageType = options.type === 'session' ? 'sessionStorage' : 'localStorage';
+    const action = options.action || 'set';
+    if (action === 'set' && !options.key) {
+      throw new RpcError('INVALID_INPUT', 'Parameter "key" diperlukan untuk aksi set.');
+    }
+    if (action === 'remove' && !options.key) {
+      throw new RpcError('INVALID_INPUT', 'Parameter "key" diperlukan untuk aksi remove.');
+    }
+
+    await contents.executeJavaScript(`
+      (() => {
+        const store = window[${JSON.stringify(storageType)}];
+        if (!store) throw new Error("Storage tidak tersedia pada halaman ini.");
+        const act = ${JSON.stringify(action)};
+        const key = ${JSON.stringify(options.key || '')};
+        const val = ${JSON.stringify(options.value !== undefined ? options.value : '')};
+        if (act === 'set') store.setItem(key, val);
+        else if (act === 'remove') store.removeItem(key);
+        else if (act === 'clear') store.clear();
+      })()
+    `).catch(err => {
+      throw new RpcError('ACTION_FAILED', `Gagal memodifikasi ${storageType}: ${(err as any)?.message || String(err)}`);
+    });
+
+    return { ok: true, action, type: options.type === 'session' ? 'session' : 'local' };
+  }
+
+  async dragAndDrop(options: {
+    from: { elementId?: number; selector?: string; x?: number; y?: number };
+    to: { elementId?: number; selector?: string; x?: number; y?: number };
+    steps?: number;
+  }, signal?: AbortSignal): Promise<{ ok: true; from: { x: number; y: number }; to: { x: number; y: number } }> {
+    const contents = this.getActiveWebContents();
+    signal?.throwIfAborted();
+
+    const resolveCoords = async (point: { elementId?: number; selector?: string; x?: number; y?: number }): Promise<{ x: number; y: number }> => {
+      if (point.x !== undefined && point.y !== undefined) {
+        return { x: point.x, y: point.y };
+      }
+      const box = (await contents.executeJavaScript(
+        '(' + getElementBoundingBox.toString() + ')(' + JSON.stringify({ elementId: point.elementId, selector: point.selector }) + ')'
+      )) as { x: number; y: number; width: number; height: number } | null;
+      if (!box || box.width <= 0 || box.height <= 0) {
+        throw new RpcError('ELEMENT_NOT_FOUND', `Elemen drag/drop tidak ditemukan atau tidak memiliki dimensi.`);
+      }
+      return { x: Math.round(box.x + box.width / 2), y: Math.round(box.y + box.height / 2) };
+    };
+
+    const start = await resolveCoords(options.from);
+    const end = await resolveCoords(options.to);
+    const steps = Math.min(Math.max(options.steps || 10, 2), 100);
+
+    if (!contents.debugger.isAttached()) {
+      try { contents.debugger.attach('1.3'); } catch {}
+    }
+
+    if (contents.debugger.isAttached()) {
+      await contents.debugger.sendCommand('Input.dispatchMouseEvent', {
+        type: 'mouseMoved', x: start.x, y: start.y,
+      });
+      await contents.debugger.sendCommand('Input.dispatchMouseEvent', {
+        type: 'mousePressed', x: start.x, y: start.y, button: 'left', clickCount: 1,
+      });
+      for (let i = 1; i <= steps; i++) {
+        signal?.throwIfAborted();
+        const curX = Math.round(start.x + (end.x - start.x) * (i / steps));
+        const curY = Math.round(start.y + (end.y - start.y) * (i / steps));
+        await contents.debugger.sendCommand('Input.dispatchMouseEvent', {
+          type: 'mouseMoved', x: curX, y: curY, button: 'left', buttons: 1,
+        });
+        await delay(20, undefined, { signal });
+      }
+      await contents.debugger.sendCommand('Input.dispatchMouseEvent', {
+        type: 'mouseReleased', x: end.x, y: end.y, button: 'left',
+      });
+    } else {
+      await contents.executeJavaScript(`
+        (() => {
+          const fromEl = document.elementFromPoint(${start.x}, ${start.y}) || document.body;
+          const toEl = document.elementFromPoint(${end.x}, ${end.y}) || document.body;
+          fromEl.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: ${start.x}, clientY: ${start.y}, buttons: 1 }));
+          fromEl.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: ${end.x}, clientY: ${end.y}, buttons: 1 }));
+          toEl.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, clientX: ${end.x}, clientY: ${end.y} }));
+        })()
+      `);
+    }
+
+    return { ok: true, from: start, to: end };
   }
 }

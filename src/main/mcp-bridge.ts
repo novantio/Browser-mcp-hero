@@ -526,6 +526,38 @@ export class McpBridge {
         return await browser.rollbackCheckpoint(String(p.name), signal);
       case 'automation.act':
         return await browser.act(p as any, signal);
+      case 'cookies.get':
+        return await browser.getCookies({
+          url: p.url as string | undefined,
+          name: p.name as string | undefined,
+          domain: p.domain as string | undefined,
+        });
+      case 'cookies.set':
+        return await browser.setCookie({
+          url: p.url as string | undefined,
+          name: String(p.name),
+          value: String(p.value),
+          domain: p.domain as string | undefined,
+          path: p.path as string | undefined,
+          secure: p.secure as boolean | undefined,
+          httpOnly: p.httpOnly as boolean | undefined,
+          sameSite: p.sameSite as any,
+          expirationDate: p.expirationDate as number | undefined,
+        });
+      case 'storage.get':
+        return await browser.getStorage({
+          type: (p.type as 'local' | 'session') || 'local',
+          key: p.key as string | undefined,
+        });
+      case 'storage.set':
+        return await browser.setStorage({
+          type: (p.type as 'local' | 'session') || 'local',
+          action: (p.action as 'set' | 'remove' | 'clear') || 'set',
+          key: p.key as string | undefined,
+          value: p.value !== undefined ? String(p.value) : undefined,
+        });
+      case 'automation.dragAndDrop':
+        return await browser.dragAndDrop(p as any, signal);
       default: throw new RpcError('UNKNOWN_METHOD', 'Metode tidak tersedia.');
     }
     return { ok: true };

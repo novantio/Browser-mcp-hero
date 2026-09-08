@@ -26,10 +26,18 @@ export function observePage(options: { maxLength?: number } = {}): {
   const title = document.title || 'Tanpa judul';
   const loading = document.readyState !== 'complete';
 
-  // Clear previous hero element IDs
-  for (const old of document.querySelectorAll('[data-hero-id]')) {
-    old.removeAttribute('data-hero-id');
-  }
+  // Clear previous hero element IDs across document and open shadow roots
+  const clearHeroIds = (root: Element | Document | ShadowRoot) => {
+    try {
+      for (const old of root.querySelectorAll('[data-hero-id]')) {
+        old.removeAttribute('data-hero-id');
+      }
+      for (const el of root.querySelectorAll('*')) {
+        if (el.shadowRoot) clearHeroIds(el.shadowRoot);
+      }
+    } catch {}
+  };
+  clearHeroIds(document);
 
   if (!document.body) {
     return {
@@ -45,10 +53,21 @@ export function observePage(options: { maxLength?: number } = {}): {
     if (el.matches('script, style, template, noscript, iframe, object, embed, meta, link, input[type="hidden"], [hidden], [aria-hidden="true"]')) {
       return false;
     }
-    for (let parent: Element | null = el; parent; parent = parent.parentElement) {
-      const style = getComputedStyle(parent);
+    let current: Element | null = el;
+    while (current) {
+      const style = getComputedStyle(current);
       if (style.display === 'none' || style.visibility !== 'visible' || style.opacity === '0') {
         return false;
+      }
+      if (current.parentElement) {
+        current = current.parentElement;
+      } else {
+        const root = current.getRootNode();
+        if (root && 'host' in root && (root as ShadowRoot).host) {
+          current = (root as ShadowRoot).host;
+        } else {
+          break;
+        }
       }
     }
     return Boolean(el.getClientRects().length);
@@ -73,7 +92,20 @@ export function observePage(options: { maxLength?: number } = {}): {
     '[tabindex]:not([tabindex="-1"])',
   ].join(',');
 
-  const rawCandidates = Array.from(document.body.querySelectorAll(interactiveSelector));
+  const collectCandidates = (root: Element | Document | ShadowRoot): Element[] => {
+    const list: Element[] = [];
+    try {
+      list.push(...Array.from(root.querySelectorAll(interactiveSelector)));
+      for (const el of root.querySelectorAll('*')) {
+        if (el.shadowRoot) {
+          list.push(...collectCandidates(el.shadowRoot));
+        }
+      }
+    } catch {}
+    return list;
+  };
+
+  const rawCandidates = collectCandidates(document.body);
 
   // Filter visible and remove redundant outer containers when inner is also a candidate
   const visible = rawCandidates.filter(isVisible);

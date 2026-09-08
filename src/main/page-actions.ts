@@ -1,15 +1,35 @@
 /** Runs in the page; serialized without module dependencies. Never returns field values. */
 export function fillPageInput(target: string | { elementId?: number; selector?: string }, text: string, clear: boolean): string | null {
-  let selector = typeof target === 'string' ? target : (target.selector || '');
+  let el: Element | null = null;
   if (typeof target === 'object' && target.elementId !== undefined) {
-    selector = `[data-hero-id="${target.elementId}"]`;
+    let found = document.querySelector(`[data-hero-id="${target.elementId}"]`);
+    if (!found) {
+      const searchShadow = (root: Element | Document | ShadowRoot): Element | null => {
+        try {
+          const direct = root.querySelector(`[data-hero-id="${target.elementId}"]`);
+          if (direct) return direct;
+          for (const child of root.querySelectorAll('*')) {
+            if (child.shadowRoot) {
+              const res = searchShadow(child.shadowRoot);
+              if (res) return res;
+            }
+          }
+        } catch {}
+        return null;
+      };
+      found = searchShadow(document.body);
+    }
+    if (!found) return 'ELEMENT_NOT_FOUND';
+    el = found;
+  } else {
+    const selector = typeof target === 'string' ? target : (target.selector || '');
+    let matches: NodeListOf<Element>;
+    try { matches = document.querySelectorAll(selector); }
+    catch { return 'INVALID_SELECTOR'; }
+    if (!matches.length) return 'ELEMENT_NOT_FOUND';
+    if (matches.length !== 1) return 'ELEMENT_AMBIGUOUS';
+    el = matches[0]!;
   }
-  let matches: NodeListOf<Element>;
-  try { matches = document.querySelectorAll(selector); }
-  catch { return 'INVALID_SELECTOR'; }
-  if (!matches.length) return 'ELEMENT_NOT_FOUND';
-  if (matches.length !== 1) return 'ELEMENT_AMBIGUOUS';
-  const el = matches[0]!;
   if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) return 'ELEMENT_NOT_EDITABLE';
   if (el instanceof HTMLInputElement && !['text', 'search', 'email', 'password', 'tel', 'url', 'number'].includes(el.type))
     return 'ELEMENT_NOT_EDITABLE';
@@ -29,7 +49,7 @@ export function fillPageInput(target: string | { elementId?: number; selector?: 
   setter.call(el, value);
   el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertReplacementText', data: null }));
   el.dispatchEvent(new Event('change', { bubbles: true }));
-  const current = document.querySelector(selector);
+  const current = el;
   return current instanceof HTMLInputElement || current instanceof HTMLTextAreaElement
     ? (current.value === value ? null : 'INPUT_VALUE_REJECTED') : 'INPUT_VALUE_REJECTED';
 }
@@ -38,7 +58,23 @@ export function clickPageElement(target: { elementId?: number; selector?: string
   let el: Element | null = null;
 
   if (target.elementId !== undefined) {
-    const found = document.querySelector(`[data-hero-id="${target.elementId}"]`);
+    let found = document.querySelector(`[data-hero-id="${target.elementId}"]`);
+    if (!found) {
+      const searchShadow = (root: Element | Document | ShadowRoot): Element | null => {
+        try {
+          const direct = root.querySelector(`[data-hero-id="${target.elementId}"]`);
+          if (direct) return direct;
+          for (const child of root.querySelectorAll('*')) {
+            if (child.shadowRoot) {
+              const res = searchShadow(child.shadowRoot);
+              if (res) return res;
+            }
+          }
+        } catch {}
+        return null;
+      };
+      found = searchShadow(document.body);
+    }
     if (!found) return 'ELEMENT_NOT_FOUND';
     el = found;
   } else if (target.selector) {

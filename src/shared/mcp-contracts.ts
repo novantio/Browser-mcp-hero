@@ -255,6 +255,46 @@ const actResult = z.object({
   message: z.string(),
 }).strict();
 
+const cookieEntry = z.object({
+  name: z.string(),
+  value: z.string(),
+  domain: z.string().optional(),
+  path: z.string().optional(),
+  secure: z.boolean().optional(),
+  httpOnly: z.boolean().optional(),
+  sameSite: z.string().optional(),
+  expirationDate: z.number().optional(),
+}).strict();
+
+const getCookiesResult = z.object({
+  cookies: z.array(cookieEntry),
+  count: z.number().int(),
+}).strict();
+
+const setCookieResult = z.object({
+  ok: z.literal(true),
+  name: z.string(),
+  domain: z.string().optional(),
+}).strict();
+
+const getStorageResult = z.object({
+  type: z.enum(['local', 'session']),
+  entries: z.record(z.string(), z.string()),
+  count: z.number().int(),
+}).strict();
+
+const setStorageResult = z.object({
+  ok: z.literal(true),
+  action: z.enum(['set', 'remove', 'clear']),
+  type: z.enum(['local', 'session']),
+}).strict();
+
+const dragAndDropResult = z.object({
+  ok: z.literal(true),
+  from: z.object({ x: z.number(), y: z.number() }).strict(),
+  to: z.object({ x: z.number(), y: z.number() }).strict(),
+}).strict();
+
 const selected = z.object({ activeProfileId: id }).strict();
 export interface ToolContract {
   name: string; method: string; description: string;
@@ -380,5 +420,23 @@ export const toolContracts: ToolContract[] = [
     autoHeal: z.boolean().optional(),
     autoChallengeIntervention: z.boolean().optional(),
   }, actResult),
+  define('browser_get_cookies', 'cookies.get', 'Ambil cookies dari sesi tab aktif (termasuk HttpOnly/session cookies untuk analisis autentikasi).', {
+    ...taskInput, url: short.optional(), name: z.string().max(200).optional(), domain: z.string().max(200).optional(),
+  }, getCookiesResult),
+  define('browser_set_cookie', 'cookies.set', 'Setel atau suntikkan cookie ke sesi browser aktif (misal sessionid TikTok/auth token).', {
+    ...taskInput, url: short.optional(), name: z.string().min(1).max(200), value: z.string().max(10000), domain: z.string().max(200).optional(), path: z.string().max(500).optional(), secure: z.boolean().optional(), httpOnly: z.boolean().optional(), sameSite: z.enum(['unspecified', 'no_restriction', 'lax', 'strict']).optional(), expirationDate: z.number().optional(),
+  }, setCookieResult),
+  define('browser_get_storage', 'storage.get', 'Baca nilai dari localStorage atau sessionStorage pada tab aktif.', {
+    ...taskInput, type: z.enum(['local', 'session']).default('local'), key: z.string().max(200).optional(),
+  }, getStorageResult),
+  define('browser_set_storage', 'storage.set', 'Ubah, hapus, atau bersihkan entri localStorage atau sessionStorage pada tab aktif.', {
+    ...taskInput, type: z.enum(['local', 'session']).default('local'), action: z.enum(['set', 'remove', 'clear']).default('set'), key: z.string().max(200).optional(), value: z.string().max(50000).optional(),
+  }, setStorageResult),
+  define('browser_drag_and_drop', 'automation.dragAndDrop', 'Simulasikan gesture drag and drop mouse (misal menggeser slider puzzle CAPTCHA) dari target awal ke tujuan.', {
+    ...taskInput,
+    from: z.object({ elementId: z.number().int().min(1).optional(), selector: short.optional(), x: z.number().optional(), y: z.number().optional() }).strict(),
+    to: z.object({ elementId: z.number().int().min(1).optional(), selector: short.optional(), x: z.number().optional(), y: z.number().optional() }).strict(),
+    steps: z.number().int().min(1).max(100).optional(),
+  }, dragAndDropResult),
 ];
 export function contractFor(method: string): ToolContract | undefined { return toolContracts.find(tool => tool.method === method); }
