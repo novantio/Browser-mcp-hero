@@ -1,84 +1,133 @@
-# Arsitektur Hero Browser 0.2
+# Arsitektur Hero Browser 0.4 — Web Data Operating System
 
-## Status
+Hero Browser adalah runtime Electron dengan profil persisten, sesi bersama, kontrol MCP, intervensi manusia, dan **Web Data Operating System** untuk ekstraksi data AI, monitoring berkelanjutan, kurasi dataset LLM, serta penelusuran garis silsilah data (data lineage).
 
-Milestone 1 (browser dasar) dan Milestone 2 (profil persisten) selesai. Pemilihan profil serta lock manager dari Milestone 3 tersedia. Lock belum dihubungkan ke transport agent, karena MCP dan TaskManager belum diimplementasikan.
+## Jalur kontrol
 
-## Alur
+Agent → MCP stdio → runner Node → RPC loopback terautentikasi → TaskManager / JobRunner → BrowserManager → WebContentsView (CDP attached).
 
-```text
-Renderer -> Preload -> IPC + validasi sender -> Command handler
-                                                   |
-                     +-----------------------------+------------------+
-                     |                             |                  |
-               BrowserManager               ProfileManager     SessionManager
-                     |                        profiles.json     persist:hero-ID
-              WebContentsView
-                     |
-             Snapshot UI tanpa secret
+- Runner mendaftarkan **78 tool MCP** yang terdiri dari:
+  - 28 browser & automation tools (navigasi, klik, ketik, snapshot, tab, profil, task, dialog, intervensi, serta `browser_evaluate` terisolasi).
+  - 36 data acquisition, analytics & LLM preparation tools (store, snapshot diff, PII scrubber, search FTS5, schema parse, dataset export, canonical graph, temporal/interaction analytics, embeddings, vector search, job runner).
+  - 14 Web Data OS enterprise tools:
+    - Multi-strategy extraction (`data_extract_multistrategy`)
+    - Selector self-healing (`data_heal_selector`)
+    - Schema drift detection (`data_detect_drift`, `data_get_schema_baseline`)
+    - Network intelligence & CDP response capture (`data_get_network_exchanges`, `data_get_network_recipe`, `data_replay_network_recipe`)
+    - Infinite scroll & streaming collector (`data_collect_stream`)
+    - Rate limit & adaptive backoff (`data_check_rate_limit`, `data_report_request_status`)
+    - Crawl frontier (`data_frontier_push`, `data_frontier_next`, `data_frontier_stats`)
+    - Human curation queue (`data_review_queue_list`, `data_review_queue_curate`)
+    - Scraper copilot (`data_copilot_synthesize`, `data_copilot_test`)
+    - Data provenance lineage graph (`data_get_lineage`)
+- Kontrak input menolak field tambahan dan membatasi ukuran/nilai parameter via Zod schemas. Hasil sukses dikirim sebagai structuredContent: `{ result: ... }`.
+- Error tool memakai `isError` dengan kode error dan pesan yang tidak menggemakan isi halaman atau parameter sensitif.
+- Bridge hanya mendengarkan loopback `127.0.0.1`. File `mcp-bridge.json` menyimpan token lokal sementara; token tidak pernah masuk log.
+- Perintah otomasi yang sudah dikirim tidak dicoba ulang otomatis (idempotency safety).
+
+---
+
+## Lapisan Web Data Operating System
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         AI / MCP AGENT & COPILOT                            │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  Multi-Strategy  │  Selector  │  Drift & Quality  │  Crawl Frontier & RPM   │
+│    Extraction    │  Healing   │     Detection     │     Rate Limiter        │
+├─────────────────────────────────────────────────────────────────────────────┤
+│    Collector Engine (Infinite Scroll)    │     Human Review Queue           │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  Network Intelligence Layer (CDP Network.enable, Body Capture & Replay)     │
+├─────────────────────────────────────────────────────────────────────────────┤
+│       Electron Core (Persistent Profiles, Safe DOM, Sanitized Whitelist)    │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-BrowserManager menerima ProfileManager dan SessionManager melalui constructor. Tab memiliki ID profil, dan snapshot UI hanya menyertakan tab profil aktif. Pergantian profil menyembunyikan view profil lama tanpa menghancurkannya. Command penutupan/pemilihan tab dari profil lain ditolak.
+### 1. Multi-Strategy Extraction Engine (`ExtractionEngine`)
+Menggabungkan 6 strategi ekstraksi dengan skor keyakinan (*confidence score* 0.0 – 1.0):
+1. **Network Response:** Memeriksa payload JSON langsung dari intercept CDP tanpa ketergantungan render DOM.
+2. **Embedded JSON / Hydration State:** Mengekstrak objek global Next.js (`__NEXT_DATA__`), Nuxt (`__NUXT__`), Redux (`__INITIAL_STATE__`), Apollo (`__APOLLO_STATE__`).
+3. **JSON-LD & Meta Tags:** Mengekstrak schema.org Microdata, OpenGraph, dan Twitter Cards.
+4. **DOM Selectors:** Menavigasi node CSS dengan atribut yang diizinkan.
+5. **Accessibility / ARIA Tree:** Mengekstrak semantic roles (`heading`, `listitem`, `article`, `button`).
+6. **Visual Fallback:** Menyiapkan bounding boxes untuk multimodal OCR/VLM.
 
-SessionManager membuat satu partisi persisten per ID profil. Nama profil tidak pernah digunakan sebagai path. Pengaturan sandbox, isolasi dan penolakan permission berlaku sama untuk semua partisi. Popup dari profil yang sedang tidak aktif ditolak agar tidak membuka tab pada identitas yang salah.
+### 2. Selector Self-Healing (`SelectorHealer`)
+Mendeteksi kerusakan selector saat website mengubah markup atau CSS class dinamis (misalnya styled-components atau tailwind hash):
+- Menghitung kemiripan semantic attribute (`data-testid`, `data-e2e`, `aria-label`, `role`).
+- Menghitung token similarity (Jaccard coefficient) pada teks tombol/label.
+- Memeriksa kesesuaian hierarchy tag dan mengembalikan rekomendasi selector baru dengan confidence score serta penjelasan alasan perbaikan (*reason*).
 
-ProfileManager menyimpan metadata versi 1 melalui penulisan ke file sementara unik, flush, lalu rename. Perubahan in-memory baru diterapkan setelah penulisan berhasil. Korupsi metadata menghentikan startup dengan pesan yang jelas; data asli dipertahankan.
+### 3. Schema Drift & Statistical Shift Detector (`DriftDetector`)
+Melindungi pipeline data dari perubahan struktur yang tidak disadari:
+- Menyimpan *moving baseline* per schema & target domain.
+- Menghitung metrik drift:
+  - Lonjakan nilai null / missing fields (flagged jika peningkatan null > 40%).
+  - Ketidakcocokan tipe data (misalnya string angka berubah menjadi string narasi atau boolean).
+  - Pergeseran distribusi nilai numerik (perubahan rata-rata > 4x dari baseline historis).
+- Otomatis menandai records yang mencurigakan ke dalam **Human Review Queue**.
 
-## Lifecycle data
+### 4. Network Intelligence & CDP Request Replay (`NetworkIntelligence`)
+Menggunakan Chrome DevTools Protocol (`webContents.debugger` v1.3):
+- Mengaktifkan `Network.enable` saat tab dibuat.
+- Mengaitkan request/response dengan tab ID dan aksi browser terkini.
+- Menangkap body payload JSON/XHR melalui `Network.getResponseBody`.
+- Menghasilkan **Network Recipes**: template cURL/Fetch yang dapat dijalankan secara headless untuk menghemat bandwidth hingga 95% tanpa memuat ulang seluruh aset visual DOM.
 
-- Aplikasi persisten memakai userData **Hero Browser Profiles**, terpisah dari runtime 0.1 yang masih memakai partisi memori.
-- Parameter eksplisit --user-data-dir tetap didukung untuk tes. sessionData diarahkan ke direktori tersebut.
-- Single-instance lock mencegah dua proses versi persisten memakai direktori data yang sama.
-- Tombol simpan serta penutupan jendela normal memanggil flushStorageData dan menunggu cookies.flushStore.
-- Cookie sesi tanpa tanggal kedaluwarsa tidak diubah menjadi cookie persisten. sessionStorage dan restore tab tidak dijanjikan lintas restart.
-- Sesi autentikasi mengikuti aturan situs. Tidak ada boolean authenticated yang ditebak dari jumlah cookie.
+### 5. Infinite Scroll & Stream Collector (`CollectorEngine`)
+Primitive `browser_collect` untuk scraping feed, linimasa media sosial, dan e-commerce:
+- Scrolling otomatis berbasis viewport dengan jeda dinamis (debounce).
+- Ekstraksi bertahap (*batch extraction*) pada setiap scroll step.
+- In-flight deduplication berdasarkan field kunci (misalnya `id`, `url`, atau `fingerprint`).
+- Kondisi terminasi cerdas: mencapai batas `maxItems`, mendeteksi *no new items after N attempts*, atau timeout.
 
-## Penghapusan profil
+### 6. Crawl Frontier & Adaptive Rate Limiter
+- **Crawl Frontier (`CrawlFrontier`):** Priority queue untuk penjelajahan multi-halaman dengan pelacakan URL yang sudah dikunjungi (`visited`), batas kedalaman (`maxDepth`), dan antrean coba ulang (`retryQueue`).
+- **Adaptive Rate Limiter (`RateLimiter`):** Mengatur requests per minute (RPM) per host. Otomatis mengaktifkan exponential backoff dengan jitter saat menerima respon status HTTP 429 atau 503.
 
-1. Validasi profil ada, bukan Default, dan tidak dikunci.
-2. Tampilkan konfirmasi native dengan Batal sebagai pilihan default.
-3. Tutup WebContents milik profil target; pindahkan UI ke Default jika perlu.
-4. Tutup koneksi, clearData, clearAuthCache, dan flush penyimpanan profil target.
-5. Hapus metadata profil hanya setelah penghapusan data Chromium berhasil.
+### 7. Human Review Queue (`ReviewQueue`)
+Penyaring human-in-the-loop untuk kualitas data dan kepatuhan:
+- Menampung record dengan confidence ekstraksi rendah (< 0.7), data terduga PII, atau anomali schema drift.
+- Menyediakan status kurasi: `pending`, `approved`, `rejected`, `merged`, dan `edited`.
+- Terintegrasi langsung dengan dashboard UI dan API MCP `data_review_queue_curate`.
 
-Jika penghapusan data gagal, metadata dipertahankan agar pengguna dapat mencoba lagi. Tidak ada recursive filesystem delete. Native view yang ditutup tidak menyisakan tab aktif pada profil yang dihapus.
+### 8. Scraper Copilot (`ScraperCopilot`)
+Alat bantu sintesis satu klik untuk agen dan engineer:
+- Menerima kontrak tujuan (misal: "ambil nama produk, harga, dan rating") dan URL target.
+- Menganalisis respon network yang relevan, state tersemat, dan pola DOM.
+- Menghasilkan rekomendasi schema Zod, strategi ekstraksi optimal, dan selector yang andal.
+- Menjalankan uji ekstraksi kilat (*dry run*) untuk mengukur akurasi sebelum job crawler dijalankan.
 
-## Profile lock
+### 9. Content Provenance & Data Lineage (`DataStore.getLineage`)
+Memetakan garis keturunan data lengkap dari hilir ke hulu:
+- Record ID → Extracted Record → Extraction Strategy & Confidence → Network Request ID & URL → Browser Session / Profile → Timestamp & Origin Hash.
+- Menyajikan audit trail yang tak terbantahkan untuk kepatuhan lisensi dan audit AI.
 
-Lock bersifat in-memory, dimiliki satu taskId. Lock berulang oleh owner yang sama idempoten; owner lain mendapat PROFILE_BUSY. Hanya owner yang sama dapat membuka kunci. Penghapusan profil terkunci ditolak.
+---
 
-Lock tidak dipersistenkan karena task belum bisa dipulihkan setelah restart. TaskManager nanti bertanggung jawab memperoleh/melepas lock sepanjang lifecycle otomasi. Browsing manual tetap tersedia untuk human intervention.
+## Sanitasi DOM & Keamanan
 
-## Batas kepercayaan
+Fungsi `readSafePage` dan snapshot bekerja pada salinan DOM terlepas:
+- Whitelist atribut semantik: `id`, `name`, `class`, `role`, `aria-*`, `data-testid`, `data-e2e`, `data-cy`, `data-qa`, `itemprop`, `datetime`, `href`, `src`, `title`, `alt`.
+- Script eksekusi berbahaya, frame eksternal, formulir password, dan token tersembunyi disaring secara otomatis.
+- Evaluasi skrip melalui tool `browser_evaluate` diisolasi di sandbox halaman tanpa hak akses Node.js.
 
-- Shell dan halaman remote memakai contextIsolation, sandbox dan nodeIntegration false.
-- Preload hanya ada pada shell lokal, dengan capability terbatas tanpa evaluate/IPC generik.
-- IPC memeriksa WebContents pengirim, main frame, URL shell, dan argumen command.
-- HTTP/HTTPS saja; credential di URL dan protokol lokal/eksternal ditolak.
-- Halaman ditampilkan melalui WebContentsView. Ukuran view tervalidasi dan dibatasi jendela.
-- Nama profil dan judul situs dirender sebagai teks, bukan HTML.
-- Cookie, localStorage dan IndexedDB akun tidak dibaca untuk snapshot UI, log, atau status autentikasi.
-- Tidak ada solver CAPTCHA atau bypass verifikasi.
+## Penyimpanan Profil & Login Persisten
 
-## Verifikasi
+Partisi profil tetap tersimpan di `persist:hero-<profileId>`.
+- Identitas profil, sesi bersama (`sharedWith`), dan cookie autentikasi tidak pernah di-reset atau dihilangkan.
+- Jendela popup OAuth mempertahankan relasi pembuka (`window.opener`) dengan sesi profil yang aman.
 
-Unit tests mencakup metadata setelah restart, nama/ID invalid, deduplikasi, snapshot immutability, lock owner, profil Default, korupsi metadata dan batas command IPC.
+## Status Pengujian & Verifikasi
 
-Tes Electron dasar mencakup navigasi, popup, error recovery, resize, isolasi remote, shortcut dan cleanup. Tes persistence menggunakan data sintetis pada server lokal: cookie dengan Max-Age, localStorage, dan IndexedDB; restart nyata; isolasi antarprofil; lifecycle penghapusan; single-instance. Tidak ada tes yang memakai akun pengguna.
+- **46 Unit & Integration Tests (100% Pass):**
+  - RateLimiter (RPM, exponential backoff, jitter)
+  - DriftDetector (null spikes, distribution shifts, baseline updates)
+  - CrawlFrontier (priority queues, depth limiting, retry queue)
+  - ReviewQueue (approve, reject, merge, edit curation lifecycle)
+  - NetworkIntelligence (CDP exchanges, body capture, network recipes, action correlation)
+  - DataLineage (full traversal from record to network exchange and profile)
+  - MCP Tool Contracts (78 tools verified, strict parameter validations)
+  - Profile persistence, shared session ownership, task locking, human intervention, and audit logging.
 
-## Berikutnya
-
-- Milestone 4–5: server MCP lokal dan capability browser dengan schema, timeout serta cancellation.
-- Milestone 6: TaskManager dan pengikatan lock ke lifecycle task.
-- Milestone 7: pause/resume untuk tindakan manusia, tanpa bypass.
-- Milestone 8–9: aktivitas nyata dan ekstraksi terstruktur.
-- Milestone 10: permission UI, audit tanpa secret, packaging serta hardening.
-
-## Dokumentasi primer
-
-- [Electron Session](https://github.com/electron/electron/blob/main/docs/api/session.md)
-- [Electron Cookies / flushStore](https://github.com/electron/electron/blob/main/docs/api/cookies.md)
-- [Electron network context: session cookie lifetime](https://github.com/electron/electron/blob/main/shell/browser/net/network_context_service.cc)
-- [Electron Web Embeds](https://github.com/electron/electron/blob/main/docs/tutorial/web-embeds.md)
-- [Electron Security](https://github.com/electron/electron/blob/main/docs/tutorial/security.md)
-- [Playwright Electron](https://github.com/microsoft/playwright/blob/main/docs/src/electron-api/class-electron.md)

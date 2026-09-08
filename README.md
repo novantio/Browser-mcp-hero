@@ -2,7 +2,7 @@
 
 Browser desktop Electron + TypeScript untuk fondasi runtime browser bersama manusia dan AI.
 
-**Versi 0.2:** tab browser, profil persisten, pemilihan/pembuatan/penghapusan profil, dan fondasi profile lock. MCP, task engine, serta human intervention belum tersedia.
+**Versi 0.4:** AI Browser Runtime berbasis Electron + MCP Server (`@modelcontextprotocol/sdk`). Mendukung otomasi browser (navigate, click, type, screenshot, structured extraction), tab browser, profil persisten dengan isolasi data, Share sesi, popup OAuth Google/TikTok/Twitter native, Task Engine dengan ownership lock, dan alur **Human-in-the-loop Challenge Handling** (CAPTCHA/MFA/verifikasi manual).
 
 ## Menjalankan
 
@@ -31,7 +31,7 @@ Wrapper npm global pada mesin pengembangan awal bermasalah. Launcher langsung di
 4. Klik **Simpan sekarang** untuk segera menyimpan perubahan yang masih menunggu penulisan ke disk. Penyimpanan Chromium juga berjalan otomatis, dan aplikasi menunggu proses simpan ketika ditutup normal.
 5. Buka ulang aplikasi dan pilih profil yang sama untuk memakai data situs tersebut kembali.
 
-Profil bawaan: Default, Instagram, YouTube, Riset. Nama profil adalah label, bukan pembatas situs: setiap profil bisa membuka situs apa pun. Cookie, localStorage, IndexedDB dan cache dipisahkan per profil. Tab tetap hidup saat berpindah profil selama aplikasi terbuka.
+Profil bawaan: Default, Instagram, YouTube, Riset. Nama profil adalah label, bukan pembatas situs: setiap profil bisa membuka situs apa pun. Secara default cookie, localStorage, IndexedDB dan cache dipisahkan per profil. Opsi Share menghubungkan profil pilihan ke sesi sumber yang sama. Tab tetap hidup saat berpindah profil selama aplikasi terbuka.
 
 Form **Profil baru** membuat profil tambahan, maksimal 20. **Hapus profil** menampilkan konfirmasi lalu menutup tab dan membersihkan data situs milik profil itu saja. Default tidak dapat dihapus. Penghapusan menggunakan API Chromium; direktori kontainer yang kosong mungkin tetap ada di disk.
 
@@ -68,7 +68,7 @@ Pilihan profil terakhir dipulihkan saat membuka aplikasi. Daftar URL/tab belum d
 
 Remote page tidak memiliki Node.js, preload internal, atau akses filesystem. Kamera, mikrofon, geolokasi, notifikasi dan unduhan ditolak sampai permission UI tersedia. Protokol lokal/eksternal tidak dibuka.
 
-ProfileManager memiliki lock berdasarkan owner task dan menolak owner berbeda serta penghapusan profil terkunci. Integrasi lock dengan agent akan diterapkan bersama task engine; belum ada aktivitas AI atau koneksi MCP pada versi ini.
+ProfileManager memiliki lock berdasarkan owner task dan menolak owner berbeda serta penghapusan profil terkunci. Lock sudah terhubung ke task engine dan setiap aksi MCP. Status task dan aktivitas ditampilkan di UI.
 
 ## Pemeriksaan
 
@@ -109,3 +109,81 @@ docs/architecture.md    Arsitektur dan roadmap
 ```
 
 Electron 44.2.0, TypeScript 7.0.2, Playwright 1.63.0. Dependensi dikunci di `package-lock.json`.
+
+## Gmail / Google dan Share sesi
+
+1. Pilih profil yang sudah memiliki login Google, misalnya YouTube.
+2. Tombol **Gmail / Google** membuka Gmail pada tab baru di sesi profil itu. Jika belum login, masuk melalui halaman Google seperti biasa.
+3. Klik **Share sesi**, pilih profil tujuan atau **Pilih semua**, lalu **Gunakan sesi bersama**.
+4. Baca konfirmasi profil yang terdampak. Tab tujuan ditutup untuk mengganti sesi; simpan pekerjaan terlebih dahulu.
+
+Share memakai satu sesi Chromium yang sama secara langsung, tanpa ekspor/impor cookie atau password. **Semua login situs** di sesi sumber ikut digunakan, bukan hanya Google. Logout dari satu profil juga berlaku pada anggota sesi bersama. Ini tidak membuat akun Instagram otomatis login dengan akun Google.
+
+Sesi pribadi tujuan tetap disimpan. **Hentikan berbagi** pada profil penerima mengembalikannya ke sesi pribadi tersebut. Pada profil sumber, tombol itu mengembalikan semua penerima ke sesi pribadi masing-masing. Tab profil yang berubah ditutup; buka lagi situs yang ingin digunakan.
+
+Jika tujuan sebelumnya adalah sumber sebuah kelompok, anggota kelompok itu ikut dipindahkan dan dicantumkan dalam konfirmasi. Profil sumber tidak dapat dihapus selama masih dipakai profil lain. Menghapus profil penerima hanya membersihkan sesi pribadinya, bukan sesi sumber.
+
+**Pilih semua** berlaku untuk profil yang ada saat itu. Profil baru tetap pribadi sampai dipilih untuk berbagi. Pilihan berbagi bertahan setelah restart. Login mengikuti aturan situs dan tidak dijamin aktif selamanya.
+
+Tes `tests/sharing.cjs` memverifikasi konfirmasi dibatalkan, berbagi pilihan/semua, logout bersama, pemulihan sesi pribadi, restart, penghapusan penerima, dan pintasan Google. Semuanya menggunakan data sintetis localhost.
+
+## Model Context Protocol (MCP) & Integrasi Editor AI
+
+Hero Browser menyediakan **78 MCP Tools** yang dapat dihubungkan ke berbagai Code Editor dan AI Client favorit Anda (Cursor, VS Code Cline/Roo, Windsurf, Claude Desktop, Zed, Antigravity, dll).
+
+📖 **[BACA PANDUAN LENGKAP INTEGRASI MULTI-EDITOR (docs/mcp-client-setup.md)](docs/mcp-client-setup.md)**
+
+### Konfigurasi Cepat (Quickstart MCP JSON)
+
+Tambahkan blok berikut ke konfigurasi MCP editor Anda:
+
+```json
+{
+  "mcpServers": {
+    "hero-browser": {
+      "command": "node",
+      "args": ["D:/project/node/2026/Browser-mcp-hero/dist/mcp/index.js"]
+    }
+  }
+}
+```
+
+| Editor / AI Client | Lokasi File Konfigurasi |
+|---|---|
+| **Cursor** | `.cursor/mcp.json` di root proyek atau *Cursor Settings → Features → MCP* |
+| **VS Code (Cline / Roo)** | `cline_mcp_settings.json` atau via tab MCP Servers di sidebar Cline |
+| **Windsurf** | `%USERPROFILE%\.codeium\windsurf\mcp_config.json` |
+| **Claude Desktop** | `%APPDATA%\Claude\claude_desktop_config.json` |
+| **Antigravity / Gemini** | `mcp_config.json` pada folder workspace |
+
+### Alur Agen Otomasi & Web Data OS
+
+1. `browser_list_profiles` untuk memilih profil persisten.
+2. `browser_start_task({ profileId })` menghasilkan `taskId` dan mengunci sesi.
+3. Gunakan `browser_set_visibility({ taskId, visible: false })` jika ingin berjalan dalam mode Headless.
+4. **Human Intervention:** Jika bot menemui tantangan keamanan (Cloudflare Turnstile, reCAPTCHA, atau 2FA), panggil `browser_request_human_intervention`. Jendela Hero Browser akan seketika pop-up ke monitor fisik pengguna (*always-on-top*) agar pengguna dapat menyelesaikan verifikasi secara natural.
+5. **Multi-Strategy Data Extraction:** Panggil `data_extract_multistrategy` untuk ekstraksi data 6 layer otomatis (CDP Network response, embedded hydration JSON, JSON-LD, DOM, dan ARIA).
+6. **Selector Self-Healing:** Jika website target mengubah markup / class CSS, `data_heal_selector` otomatis memulihkan selector berdasarkan atribut semantik.
+7. `browser_complete_task({ taskId })` melepaskan kunci sesi setelah ekstraksi selesai.
+
+### Ringkasan Katalog 78 MCP Tool
+
+| Domain | Total | Contoh Tool Utama |
+|---|---|---|
+| **Core Browser & Control** | 28 tools | `browser_navigate`, `browser_click`, `browser_type`, `browser_scroll`, `browser_set_visibility`, `browser_evaluate`, `browser_request_human_intervention` |
+| **Data Storage & Analytics** | 36 tools | `data_store_document`, `data_query_documents`, `data_search_records` (FTS5), `data_clean_text`, `data_detect_diff`, `data_create_job`, `data_build_dataset` |
+| **Web Data OS Enterprise** | 14 tools | `data_extract_multistrategy`, `data_heal_selector`, `data_detect_drift`, `data_get_network_exchanges`, `data_get_network_recipe`, `data_replay_network_recipe`, `data_collect_stream`, `data_copilot_synthesize`, `data_get_lineage` |
+
+Task dijeda tetap mengunci seluruh kelompok sesi bersama. Jika profil aktif berubah manual, aktifkan kembali profil task sebelum melanjutkan. Operasi bersamaan mendapat BROWSER_BUSY.
+
+### Pembatalan dan data sensitif
+
+Timeout menghentikan request; pembatalan MCP diteruskan ke penantian browser dan task. Klik yang sudah terjadi tidak dapat diurungkan. Runner tidak mengulangi tindakan otomatis saat respons gagal diterima.
+
+Pembacaan DOM bekerja pada salinan tersaring; password, hidden input, nilai formulir dan script tidak dikirim. Audit tidak menyimpan isi ketikan. Screenshot tetap memuat konten yang terlihat pada layar.
+
+Lihat [arsitektur](docs/architecture.md) dan [checklist penyelesaian audit](docs/todo-status.md) untuk bukti pengujian serta batas implementasi.
+
+### Memakai pembaruan tanpa mereset login
+
+Lokasi data dan identitas partisi profil tidak berubah. Ketika siap, klik Simpan sekarang, lalu tutup dan buka aplikasi secara normal untuk memakai kode baru. Jangan hapus profil atau folder data untuk memperbarui aplikasi. Sesi login tetap tunduk pada kebijakan situs.

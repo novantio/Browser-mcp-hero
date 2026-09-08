@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { BrowserAPI, BrowserState } from '../shared/types';
+import type { BrowserAPI, BrowserState, HumanInterventionRequest, ActivityEvent } from '../shared/types';
 
 const api: BrowserAPI = {
   getState: () => ipcRenderer.invoke('browser:state'),
@@ -15,5 +15,20 @@ const api: BrowserAPI = {
     ipcRenderer.on('browser:focus-address', handler);
     return () => ipcRenderer.removeListener('browser:focus-address', handler);
   },
+  onHumanIntervention(listener) {
+    const handler = (_event: Electron.IpcRendererEvent, req: HumanInterventionRequest | null) => listener(req);
+    ipcRenderer.on('browser:human-intervention', handler);
+    return () => ipcRenderer.removeListener('browser:human-intervention', handler);
+  },
+  onActivity(listener) {
+    const handler = (_event: Electron.IpcRendererEvent, event: ActivityEvent) => listener(event);
+    ipcRenderer.on('browser:activity', handler);
+    return () => ipcRenderer.removeListener('browser:activity', handler);
+  },
+  dataOverview: () => ipcRenderer.invoke('data:overview'),
+  dataJobs: () => ipcRenderer.invoke('data:jobs'),
+  dataDatasets: () => ipcRenderer.invoke('data:datasets'),
+  dataRecordings: () => ipcRenderer.invoke('data:recordings'),
+  dataCommand: (action: string, payload?: unknown) => ipcRenderer.invoke('data:command', { action, payload }),
 };
 contextBridge.exposeInMainWorld('browser', api);

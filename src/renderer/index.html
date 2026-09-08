@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'">
   <title>Hero Browser — Profil persisten</title>
   <link rel="stylesheet" href="styles.css">
 </head>
@@ -28,12 +28,22 @@
       </form>
       <button id="toggle-panel" class="panel-button" aria-expanded="true" aria-controls="side-panel" title="Tampilkan atau sembunyikan panel sesi"><span aria-hidden="true">◫</span> Ruang kerja</button>
     </div>
+    <div id="intervention-banner" class="intervention-banner" hidden>
+      <div class="intervention-content">
+        <span class="intervention-icon" aria-hidden="true">🤖</span>
+        <div class="intervention-text">
+          <strong id="intervention-title">Tindakan Manusia Diperlukan</strong>
+          <span id="intervention-message">Website meminta verifikasi lanjutan. Silakan selesaikan di browser.</span>
+        </div>
+      </div>
+      <button id="intervention-resume" class="intervention-button">Lanjutkan Automation ↗</button>
+    </div>
   </header>
 
   <div class="workspace">
     <main id="browser-surface" class="browser-surface">
       <section id="welcome" class="welcome">
-        <div class="welcome-top"><span><span class="tiny-orbit"></span> RUANG JELAJAHMU</span><span>HERO / 0.2</span></div>
+        <div class="welcome-top"><span><span class="tiny-orbit"></span> RUANG JELAJAHMU</span><span>HERO / 0.3</span></div>
         <div class="welcome-body">
           <div class="hero-emblem" aria-hidden="true"><span>h</span><i>↗</i></div>
           <p class="eyebrow">DIMULAI DARI RASA INGIN TAHU</p>
@@ -64,21 +74,175 @@
 
     <aside id="side-panel" class="side-panel">
       <div class="panel-heading"><span>Ruang kerja</span><span class="panel-tag">LOKAL</span></div>
-      <div class="session-card">
-        <div class="session-icon" aria-hidden="true">◈</div>
-        <div><h2 id="active-profile-name">Default</h2><p>Login dan data terpisah</p></div>
-        <span class="status-dot"></span>
+      <div class="panel-mode-selector">
+        <button id="view-tab-profiles" class="panel-mode-tab active" type="button">Profil & Sesi</button>
+        <button id="view-tab-data" class="panel-mode-tab" type="button">Data & AI Runtime</button>
       </div>
-      <dl class="session-facts"><div><dt>Tab di profil ini</dt><dd id="tab-count">1</dd></div><div><dt>Kontrol</dt><dd id="profile-control">Manual</dd></div><div><dt>Penyimpanan</dt><dd class="persistent-label">Permanen</dd></div></dl>
-      <div class="profile-tools">
-        <div class="profile-actions"><button id="save-session">Simpan sekarang</button><button id="delete-profile" aria-label="Hapus profil" title="Hapus profil beserta data situs">Hapus profil</button></div>
-        <p id="storage-feedback" role="status">Data situs disimpan di perangkat.</p>
-        <form id="profile-form"><label for="profile-name">PROFIL BARU</label><div><input id="profile-name" aria-label="Nama profil baru" placeholder="Misalnya: Akun kerja" maxlength="40" required autocomplete="off"><button id="create-profile" type="submit" aria-label="Buat profil" title="Buat profil">+</button></div></form>
-        <p id="profile-feedback" role="status" hidden></p>
+
+      <div id="panel-profiles-view">
+        <div class="session-card">
+          <div class="session-icon" aria-hidden="true">◈</div>
+          <div><h2 id="active-profile-name">Default</h2><p id="session-description">Login dan data terpisah</p></div>
+          <span class="status-dot"></span>
+        </div>
+        <dl class="session-facts"><div><dt>Tab di profil ini</dt><dd id="tab-count">1</dd></div><div><dt>Kontrol</dt><dd id="profile-control">Manual</dd></div><div><dt>Penyimpanan</dt><dd class="persistent-label">Permanen</dd></div></dl>
+
+        <section class="login-tools" aria-label="Login dan berbagi sesi">
+          <div class="login-actions"><button id="open-google"><span class="google-mark" aria-hidden="true">G</span> Gmail / Google</button><button id="toggle-share" aria-expanded="false" aria-controls="share-options">Share sesi</button></div>
+          <p id="sharing-status">Sesi pribadi</p>
+          <div id="share-options" hidden>
+            <div class="share-heading"><span>PROFIL TUJUAN</span><button id="share-all" type="button">Pilih semua</button></div>
+            <div id="share-targets"></div>
+            <p class="share-note">Semua login situs akan digunakan bersama, termasuk perubahan logout. Sesi pribadi tujuan tetap disimpan.</p>
+            <button id="apply-share" type="button">Gunakan sesi bersama</button>
+          </div>
+          <button id="stop-sharing" hidden>Hentikan berbagi</button>
+        </section>
+        <div class="profile-tools">
+          <div class="profile-actions"><button id="save-session">Simpan sekarang</button><button id="delete-profile" aria-label="Hapus profil" title="Hapus profil beserta data situs">Hapus profil</button></div>
+          <p id="storage-feedback" role="status">Data situs disimpan di perangkat.</p>
+          <form id="profile-form"><label for="profile-name">PROFIL BARU</label><div><input id="profile-name" aria-label="Nama profil baru" placeholder="Misalnya: Akun kerja" maxlength="40" required autocomplete="off"><button id="create-profile" type="submit" aria-label="Buat profil" title="Buat profil">+</button></div></form>
+          <p id="profile-feedback" role="status" hidden></p>
+        </div>
+        <div class="section-divider"></div>
+        <div class="section-label">AI BROWSER RUNTIME <span id="mcp-status-badge" class="runtime-badge">MENGHUBUNGKAN</span></div>
+        <div class="ai-runtime-panel">
+          <div class="runtime-status-bar">
+            <div class="runtime-status-dot"></div>
+            <div class="runtime-status-info">
+              <span class="runtime-title" id="runtime-title">Menyiapkan koneksi AI</span>
+              <span class="runtime-sub" id="runtime-endpoint">127.0.0.1 (Local RPC)</span>
+            </div>
+          </div>
+          <div id="task-list" class="task-list" aria-live="polite"></div>
+          <div class="activity-section">
+            <div class="activity-header">
+              <span>AKTIVITAS AI TERAKHIR</span>
+              <span id="activity-counter" class="activity-count">0 aksi</span>
+            </div>
+            <div id="activity-list" class="activity-list">
+              <div class="activity-empty">Belum ada aktivitas. AI Agent siap berinteraksi melalui MCP.</div>
+            </div>
+          </div>
+        </div>
       </div>
-      <div class="section-divider"></div>
-      <div class="section-label">ASISTEN AI <span>TAHAP BERIKUTNYA</span></div>
-      <div class="assistant-state"><div class="assistant-orbit" aria-hidden="true">✳</div><h2>Tempat untuk kolaborasi.</h2><p>Profilmu sudah siap. Koneksi MCP dan aktivitas AI akan hadir di tahap berikutnya.</p><span class="offline-badge"><span></span> MCP belum tersedia</span></div>
+
+      <div id="panel-data-view" hidden>
+        <div class="data-sub-tabs">
+          <button id="data-tab-jobs" class="data-sub-tab active" type="button">Jobs</button>
+          <button id="data-tab-copilot" class="data-sub-tab" type="button">Copilot</button>
+          <button id="data-tab-network" class="data-sub-tab" type="button">Network</button>
+          <button id="data-tab-review" class="data-sub-tab" type="button">Review</button>
+          <button id="data-tab-recorder" class="data-sub-tab" type="button">Recorder</button>
+          <button id="data-tab-datasets" class="data-sub-tab" type="button">Datasets</button>
+          <button id="data-tab-search" class="data-sub-tab" type="button">Search</button>
+        </div>
+
+        <div id="data-section-copilot" class="data-section" hidden>
+          <div class="copilot-box">
+            <label>TARGET URL</label>
+            <input id="copilot-url-input" placeholder="https://news.ycombinator.com">
+            <label>GOAL CONTRACT (JSON / KEY-VALUE)</label>
+            <textarea id="copilot-contract-input" rows="3" placeholder='{"title": "string", "author": "string", "points": "integer"}'></textarea>
+            <button id="btn-copilot-run" class="action-btn-full" type="button">⚡ Analisis &amp; Sintesis Scraper</button>
+          </div>
+          <div id="copilot-result-box" class="data-card-list" style="margin-top: 10px;">
+            <div class="empty-hint">Masukkan target dan kontrak data untuk membiarkan Copilot menyintesis skema otomatis.</div>
+          </div>
+        </div>
+
+        <div id="data-section-network" class="data-section" hidden>
+          <div class="network-filter-row">
+            <input id="network-filter-input" placeholder="Filter URL / API..." style="margin-bottom: 8px;">
+            <button id="btn-refresh-network" class="primary-button" type="button" style="width: 100%;">Refresh Network</button>
+          </div>
+          <div id="network-requests-list" class="data-card-list" style="margin-top: 8px;">
+            <div class="empty-hint">Belum ada pertukaran API yang tersadap. Buka halaman web untuk menyadap endpoint.</div>
+          </div>
+        </div>
+
+        <div id="data-section-review" class="data-section" hidden>
+          <div class="data-stats-row">
+            <div class="data-stat"><span id="stat-review-pending">0</span><small>Pending</small></div>
+            <div class="data-stat"><span id="stat-review-approved">0</span><small>Approved</small></div>
+            <div class="data-stat"><span id="stat-review-rejected">0</span><small>Rejected</small></div>
+          </div>
+          <div id="review-items-list" class="data-card-list">
+            <div class="empty-hint">Semua data lolos filter kualitas. Tidak ada item yang membutuhkan kurasi manual.</div>
+          </div>
+        </div>
+
+        <div id="data-section-jobs" class="data-section">
+          <div class="data-stats-row">
+            <div class="data-stat"><span id="stat-jobs-count">0</span><small>Jobs</small></div>
+            <div class="data-stat"><span id="stat-records-count">0</span><small>Records</small></div>
+            <div class="data-stat"><span id="stat-active-count">0</span><small>Active</small></div>
+          </div>
+          <button id="btn-toggle-new-job" class="action-btn-full" type="button">+ Buat Scraping Job</button>
+          <form id="new-job-form" class="data-form" hidden>
+            <label>NAMA JOB</label>
+            <input id="job-name-input" placeholder="Brand Monitoring" required>
+            <label>TARGET URL</label>
+            <input id="job-target-input" placeholder="https://news.ycombinator.com" required>
+            <label>ROW SELECTOR (CSS)</label>
+            <input id="job-row-input" placeholder="article" value="article">
+            <label>FIELDS (path:selector)</label>
+            <input id="job-field-input" placeholder="title:h2,link:a" value="title:h2,link:a">
+            <label>INTERVAL (MENIT)</label>
+            <input id="job-interval-input" type="number" placeholder="60 (opsional)">
+            <div class="form-btn-row">
+              <button id="btn-submit-job" type="submit" class="primary-button">Simpan Job</button>
+              <button id="btn-cancel-job" type="button" class="cancel-btn">Batal</button>
+            </div>
+          </form>
+          <div id="jobs-container" class="data-card-list">
+            <div class="empty-hint">Belum ada job. Buat job scraping baru atau rekam sesi.</div>
+          </div>
+        </div>
+
+        <div id="data-section-recorder" class="data-section" hidden>
+          <div class="recorder-status-box">
+            <span class="recorder-dot"></span>
+            <span id="recorder-label">Recorder Siap</span>
+          </div>
+          <div class="recorder-actions-box">
+            <input id="rec-name-input" placeholder="Nama alur (misal: Cari Toko)">
+            <button id="btn-record-toggle" type="button" class="primary-button">Mulai Rekam ⏺</button>
+          </div>
+          <div class="section-label">LANGKAH TEREKAM <span id="rec-omitted-count">0 dilewati</span></div>
+          <div id="recorder-steps-box" class="steps-box">
+            <div class="empty-hint">Belum ada langkah. Klik "Mulai Rekam" lalu jelajahi web di browser. Input password otomatis disaring.</div>
+          </div>
+          <button id="btn-convert-scraper" class="action-btn-full" type="button" disabled>Konversi Jadi Scraping Job ↗</button>
+        </div>
+
+        <div id="data-section-datasets" class="data-section" hidden>
+          <button id="btn-toggle-build-dataset" class="action-btn-full" type="button">+ Build Dataset LLM</button>
+          <form id="build-dataset-form" class="data-form" hidden>
+            <label>NAMA DATASET</label>
+            <input id="dataset-name-input" placeholder="Dataset Llama V1" required>
+            <label>MINIMAL KUALITAS (0.0 - 1.0)</label>
+            <input id="dataset-quality-input" type="number" step="0.05" value="0.5">
+            <label>FILTER BAHASA</label>
+            <select id="dataset-lang-select"><option value="all">Semua Bahasa</option><option value="id">Bahasa Indonesia</option><option value="en">English</option></select>
+            <button type="submit" class="primary-button">Jalankan Pipeline ⚡</button>
+          </form>
+          <div id="datasets-container" class="data-card-list">
+            <div class="empty-hint">Belum ada dataset. Bangun dataset dari rekaman scraping.</div>
+          </div>
+        </div>
+
+        <div id="data-section-search" class="data-section" hidden>
+          <form id="fts-search-form" class="search-mini-form">
+            <input id="fts-search-input" placeholder="Cari teks di seluruh record...">
+            <button type="submit">⌕</button>
+          </form>
+          <div id="search-results-box" class="data-card-list">
+            <div class="empty-hint">Masukkan kata kunci untuk mencari di database akuisisi lokal.</div>
+          </div>
+        </div>
+      </div>
+
       <div class="panel-bottom"><span class="shortcut-heading">SEDIKIT PINTASAN</span><div><span>Tab baru</span><kbd>Ctrl T</kbd></div><div><span>Pilih alamat</span><kbd>Ctrl L</kbd></div><div><span>Tutup tab</span><kbd>Ctrl W</kbd></div><p>Hero Browser <span>Profil persisten</span></p></div>
     </aside>
   </div>

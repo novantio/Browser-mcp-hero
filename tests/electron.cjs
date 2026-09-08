@@ -9,8 +9,16 @@ const path = require('node:path');
   const server = createServer((req, res) => {
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     if (req.url === '/redirect-blocked') { res.writeHead(302, { Location: 'file:///C:/Windows/win.ini' }); res.end(); return; }
+    if (req.url === '/oauth-start') {
+      res.end('<!doctype html><html><head><title>Google Login</title></head><body><h1>Google Login</h1><a id="finish-auth" href="/oauth-transform">Pilih Akun</a></body></html>');
+      return;
+    }
+    if (req.url === '/oauth-transform') {
+      res.end('<!doctype html><html><head><title>Transform</title></head><body><script>if (window.opener) { window.opener.postMessage({ token: "oauth_success_token" }, "*"); window.close(); }</script></body></html>');
+      return;
+    }
     const second = req.url === '/second';
-    res.end('<!doctype html><html><head><title>' + (second ? 'Halaman kedua' : 'Halaman pertama') + '</title></head><body style="font:20px sans-serif;padding:40px"><h1>' + (second ? 'Halaman kedua' : 'Halaman pertama') + '</h1><a href="/second">Buka halaman kedua</a><p><a href="/second" target="_blank">Buka tab terpisah</a></p><input aria-label="Catatan" placeholder="Ketik di halaman"><a href="file:///C:/Windows/win.ini">Blocked file</a></body></html>');
+    res.end('<!doctype html><html><head><title>' + (second ? 'Halaman kedua' : 'Halaman pertama') + '</title></head><body style="font:20px sans-serif;padding:40px"><h1>' + (second ? 'Halaman kedua' : 'Halaman pertama') + '</h1><a href="/second">Buka halaman kedua</a><p><a href="/second" target="_blank">Buka tab terpisah</a></p><button id="oauth-btn" onclick="window.open(\'/oauth-start\', \'gsi_popup\', \'width=500,height=600\')">Login Google</button><input aria-label="Catatan" placeholder="Ketik di halaman"><a href="file:///C:/Windows/win.ini">Blocked file</a><script>window.addEventListener("message", e => { if (e.data?.token) document.body.setAttribute("data-auth", e.data.token); });</script></body></html>');
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const base = 'http://127.0.0.1:' + server.address().port;
@@ -95,6 +103,22 @@ const path = require('node:path');
     await window.waitForFunction(() => document.querySelectorAll('[role=tab]').length === 2);
     assert.equal(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length), 1);
     console.log('PASS popup opens a managed tab and closes cleanly');
+
+    await guest.getByRole('button', { name: 'Login Google', exact: true }).click();
+    await window.waitForTimeout(500);
+    assert.equal(await window.getByRole('tab').count(), 2);
+    assert.equal(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length), 2);
+    const popupPage = app.context().pages().find(p => p.url().includes('/oauth-start'));
+    assert.ok(popupPage, 'OAuth popup window exists');
+    await popupPage.locator('#finish-auth').click();
+    await window.waitForFunction(async () => {
+      return (await document.body.getAttribute('data-auth')) || true;
+    });
+    await window.waitForTimeout(500);
+    assert.equal(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length), 1);
+    const authResult = await guest.evaluate(() => document.body.getAttribute('data-auth'));
+    assert.equal(authResult, 'oauth_success_token');
+    console.log('PASS OAuth popup preserves window.opener, posts message and closes cleanly');
 
     await address.fill('http://127.0.0.1:1');
     await address.press('Enter');

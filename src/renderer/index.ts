@@ -1,4 +1,5 @@
-import type { BrowserAPI, BrowserCommand, BrowserState } from '../shared/types.js';
+import type { ActivityEvent, BrowserAPI, BrowserCommand, BrowserState } from '../shared/types.js';
+import { setupDataWorkspace, refreshDataView } from './data-workspace.js';
 
 declare global { interface Window { browser: BrowserAPI } }
 
@@ -29,10 +30,20 @@ function updateProfileControls(): void {
   element<HTMLButtonElement>('create-profile').disabled = profilePending;
   element<HTMLButtonElement>('save-session').disabled = profilePending;
   const selected = current?.profiles.find(profile => profile.id === current?.activeProfileId);
-  element<HTMLButtonElement>('delete-profile').disabled = profilePending || current?.activeProfileId === 'default' || Boolean(selected?.lockOwner);
+  element<HTMLButtonElement>('delete-profile').disabled = profilePending || current?.activeProfileId === 'default' || Boolean(selected?.lockOwner) || Boolean(selected && !selected.sharedWith && selected.sharedProfiles.length > 1);
+
+  element<HTMLButtonElement>('open-google').disabled = profilePending;
+  element<HTMLButtonElement>('toggle-share').disabled = profilePending;
+  element<HTMLButtonElement>('share-all').disabled = profilePending;
+  const candidates = [...document.querySelectorAll<HTMLInputElement>('#share-targets input')];
+  for (const checkbox of candidates) checkbox.disabled = profilePending || checkbox.dataset.shared === 'true';
+  element<HTMLButtonElement>('apply-share').disabled = profilePending || !candidates.some(input => input.checked && input.dataset.shared !== 'true');
+  element<HTMLButtonElement>('stop-sharing').disabled = profilePending || Boolean(selected?.lockOwner);
+  element('stop-sharing').hidden = !selected || selected.sharedProfiles.length <= 1;
+
 }
 async function command(value: BrowserCommand): Promise<boolean> {
-  const changesProfile = ['create-profile', 'switch-profile', 'delete-profile', 'save-session'].includes(value.action);
+  const changesProfile = ['create-profile', 'switch-profile', 'delete-profile', 'save-session', 'share-session', 'stop-sharing', 'open-google'].includes(value.action);
   if (changesProfile && profilePending) return false;
   if (changesProfile) {
     profilePending = true;
@@ -69,7 +80,25 @@ function reportBounds(): void {
 }
 
 function render(state: BrowserState): void {
+  const ready = state.mcpStatus === 'ready';
+  element('mcp-status-badge').textContent = ready ? 'MCP AKTIF' : state.mcpStatus === 'failed' ? 'KONEKSI GAGAL' : 'MENGHUBUNGKAN';
+  element('mcp-status-badge').classList.toggle('active', ready);
+  element('runtime-title').textContent = ready ? 'Siap menerima tugas' : state.mcpStatus === 'failed' ? 'Buka ulang untuk mencoba koneksi' : 'Menyiapkan koneksi AI';
+  const taskList = element('task-list');
+  taskList.replaceChildren();
+  const labels: Record<string, string> = { RUNNING: 'Berjalan', PAUSED: 'Dijeda', WAITING_FOR_HUMAN: 'Menunggu kamu', RESUMING: 'Melanjutkan', COMPLETED: 'Selesai', FAILED: 'Gagal', CANCELLED: 'Dibatalkan' };
+  for (const task of [...(state.tasks || [])].reverse().slice(0, 10)) {
+    const item = document.createElement('div');
+    item.className = 'task-item';
+    item.dataset.taskId = task.id;
+    const name = state.profiles.find(profile => profile.id === task.profileId)?.name || task.profileId;
+    item.textContent = name + ' · ' + (labels[task.status] || task.status);
+    item.title = task.id;
+    taskList.append(item);
+  }
+
   const previousId = current?.activeTabId;
+  const previousProfileId = current?.activeProfileId;
   current = state;
   const profileSelect = element<HTMLSelectElement>('profile-select');
   const optionKey = state.profiles.map(profile => profile.id + ':' + profile.name).join('|');
@@ -86,6 +115,36 @@ function render(state: BrowserState): void {
   const profile = state.profiles.find(profile => profile.id === state.activeProfileId);
   element('active-profile-name').textContent = profile?.name ?? 'Profil';
   element('profile-control').textContent = profile?.lockOwner ? 'Dikunci tugas AI' : 'Manual';
+
+  const sessionOwner = state.profiles.find(item => item.id === profile?.sessionProfileId);
+  element('sharing-status').textContent = profile && profile.sharedProfiles.length > 1
+    ? 'Sesi ' + (sessionOwner?.name ?? '') + ' · ' + profile.sharedProfiles.length + ' profil'
+    : 'Sesi pribadi';
+  element('session-description').textContent = profile && profile.sharedProfiles.length > 1 ? 'Login digunakan bersama' : 'Login dan data terpisah';
+  const targets = element('share-targets');
+  const targetKey = JSON.stringify([state.activeProfileId, state.profiles.map(p => [p.id, p.name, p.sessionProfileId])]);
+  if (targets.dataset.key !== targetKey) {
+    targets.replaceChildren(...state.profiles.filter(p => p.id !== state.activeProfileId).map(p => {
+      const label = document.createElement('label');
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.value = p.id;
+      checkbox.checked = p.sessionProfileId === profile?.sessionProfileId;
+      checkbox.dataset.shared = String(checkbox.checked);
+      checkbox.disabled = checkbox.checked;
+      checkbox.addEventListener('change', updateProfileControls);
+      const text = document.createElement('span');
+      text.textContent = p.name;
+      label.append(checkbox, text);
+      return label;
+    }));
+    targets.dataset.key = targetKey;
+  }
+  if (previousProfileId && previousProfileId !== state.activeProfileId) {
+    element('share-options').hidden = true;
+    element('toggle-share').setAttribute('aria-expanded', 'false');
+  }
+
   updateProfileControls();
 
   const active = state.tabs.find(tab => tab.id === state.activeTabId);
@@ -200,7 +259,112 @@ element('delete-profile').addEventListener('click', () => {
   if (current) void command({ action: 'delete-profile', profileId: current.activeProfileId });
 });
 element('save-session').addEventListener('click', () => { void command({ action: 'save-session' }); });
+
+element('open-google').addEventListener('click', () => { void command({ action: 'open-google' }); });
+element('toggle-share').addEventListener('click', () => {
+  const options = element('share-options');
+  options.hidden = !options.hidden;
+  element('toggle-share').setAttribute('aria-expanded', String(!options.hidden));
+});
+element('share-all').addEventListener('click', () => {
+  document.querySelectorAll<HTMLInputElement>('#share-targets input').forEach(input => { if (!input.disabled) input.checked = true; });
+  updateProfileControls();
+});
+element('apply-share').addEventListener('click', () => {
+  const targetIds = [...document.querySelectorAll<HTMLInputElement>('#share-targets input')].filter(input => input.checked && !input.disabled).map(input => input.value);
+  void command({ action: 'share-session', targetIds });
+});
+element('stop-sharing').addEventListener('click', () => { void command({ action: 'stop-sharing' }); });
+
+let activeInterventionTaskId: string | null = null;
+const banner = document.getElementById('intervention-banner') as HTMLDivElement | null;
+const bannerTitle = document.getElementById('intervention-title') as HTMLElement | null;
+const bannerMessage = document.getElementById('intervention-message') as HTMLElement | null;
+const bannerButton = document.getElementById('intervention-resume') as HTMLButtonElement | null;
+
+if (banner && bannerButton) {
+  bannerButton.addEventListener('click', () => {
+    if (activeInterventionTaskId) {
+      void command({ action: 'resume-human-intervention', taskId: activeInterventionTaskId });
+    }
+  });
+
+  window.browser.onHumanIntervention(req => {
+    if (req) {
+      activeInterventionTaskId = req.taskId;
+      if (bannerTitle) bannerTitle.textContent = req.reason || 'Tindakan Manusia Diperlukan';
+      if (bannerMessage) bannerMessage.textContent = req.message || 'Selesaikan tindakan di browser lalu klik tombol lanjutkan.';
+      banner.hidden = false;
+    } else {
+      activeInterventionTaskId = null;
+      banner.hidden = true;
+    }
+    reportBounds();
+  });
+}
+
 new ResizeObserver(reportBounds).observe(surface);
 window.browser.onState(render);
 window.browser.onFocusAddress(focusAddress);
-void window.browser.getState().then(state => { if (!current) render(state); }).catch(() => showError('Browser tidak dapat dimulai. Buka ulang aplikasi.'));
+
+let activityCount = 0;
+const activityList = document.getElementById('activity-list');
+const activityCounter = document.getElementById('activity-counter');
+
+function formatActionTag(action: string): string {
+  if (action === 'tabs.navigate') return 'NAV';
+  if (action === 'tabs.new') return 'TAB+';
+  if (action === 'tabs.close') return 'TAB-';
+  if (action === 'automation.click') return 'CLICK';
+  if (action === 'automation.type') return 'TYPE';
+  if (action === 'automation.getDOM') return 'DOM';
+  if (action === 'automation.extract') return 'EXTRACT';
+  if (action === 'automation.screenshot') return 'SHOT';
+  if (action === 'tasks.requestIntervention') return 'HUMAN';
+  if (action === 'tasks.resumeIntervention') return 'RESUME';
+  return action.split('.').pop()?.toUpperCase() || 'ACT';
+}
+
+if (activityList && window.browser.onActivity) {
+  window.browser.onActivity((event: ActivityEvent) => {
+    activityCount++;
+    if (activityCounter) activityCounter.textContent = `${activityCount} aksi`;
+    const emptyEl = activityList.querySelector('.activity-empty');
+    if (emptyEl) emptyEl.remove();
+
+    const item = document.createElement('div');
+    item.className = `activity-item status-${event.status}`;
+
+    const top = document.createElement('div');
+    top.className = 'activity-item-top';
+
+    const tag = document.createElement('span');
+    tag.className = 'activity-tag';
+    tag.textContent = formatActionTag(event.action);
+
+    const time = document.createElement('span');
+    time.className = 'activity-time';
+    const date = new Date(event.timestamp);
+    time.textContent = `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}:${date.getSeconds().toString().padStart(2, '0')}`;
+
+    top.append(tag, time);
+
+    const summary = document.createElement('div');
+    summary.className = 'activity-summary';
+    summary.textContent = event.summary;
+
+    item.append(top, summary);
+    activityList.prepend(item);
+
+    while (activityList.children.length > 25) {
+      activityList.lastElementChild?.remove();
+    }
+  });
+}
+
+setupDataWorkspace();
+void window.browser.getState().then(state => {
+  if (!current) render(state);
+  void refreshDataView();
+}).catch(() => showError('Browser tidak dapat dimulai. Buka ulang aplikasi.'));
+

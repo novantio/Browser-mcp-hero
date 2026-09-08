@@ -11,5 +11,5 @@
     "skipLibCheck": true,
     "lib": ["ES2022", "DOM"]
   },
-  "include": ["src/main/**/*.ts", "src/preload/**/*.ts", "src/shared/**/*.ts"]
+  "include": ["src/main/**/*.ts", "src/preload/**/*.ts", "src/shared/**/*.ts", "src/mcp/**/*.ts"]
 }

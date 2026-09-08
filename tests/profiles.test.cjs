@@ -71,3 +71,65 @@ test('unsafe IDs in on-disk metadata are rejected', () => {
   writeFileSync(file, JSON.stringify({ version: 1, activeProfileId: 'default', profiles: [{ id: '../outside', name: 'Default', createdAt: 1 }] }));
   assert.throws(() => new ProfileManager(dir), { code: 'PROFILE_STORE_INVALID' });
 });
+
+test('sharing links selected profiles to one persistent session and survives restart', () => {
+  const { dir, profiles } = create();
+  profiles.shareSession('youtube', ['instagram', 'research']);
+  assert.equal(profiles.getSessionProfileId('instagram'), 'youtube');
+  assert.equal(profiles.getSessionProfileId('research'), 'youtube');
+  assert.equal(profiles.getSessionProfileId('default'), 'default');
+  assert.equal(new ProfileManager(dir).getSessionProfileId('instagram'), 'youtube');
+});
+test('leaving shared session restores the original private partition', () => {
+  const { profiles } = create();
+  profiles.shareSession('youtube', ['instagram', 'research']);
+  assert.deepEqual(profiles.stopSharing('instagram'), ['instagram']);
+  assert.equal(profiles.getSessionProfileId('instagram'), 'instagram');
+  assert.equal(profiles.getSessionProfileId('research'), 'youtube');
+  profiles.stopSharing('youtube');
+  assert.equal(profiles.getSessionProfileId('research'), 'research');
+});
+test('sharing an existing session owner includes its dependent profiles without cycles', () => {
+  const { profiles } = create();
+  profiles.shareSession('instagram', ['research']);
+  const plan = profiles.planShareSession('youtube', ['instagram']);
+  assert.deepEqual(new Set(plan.targetIds), new Set(['instagram', 'research']));
+  profiles.shareSession('youtube', ['instagram']);
+  assert.equal(profiles.getSessionProfileId('research'), 'youtube');
+  profiles.shareSession('research', ['default']);
+  assert.equal(profiles.getSessionProfileId('default'), 'youtube');
+});
+test('shared session is locked as one resource and owners cannot be deleted while shared', () => {
+  const { profiles } = create();
+  profiles.shareSession('youtube', ['instagram']);
+  profiles.lockProfile('youtube', 'task-a');
+  assert.throws(() => profiles.lockProfile('instagram', 'task-b'), { code: 'PROFILE_BUSY' });
+  assert.throws(() => profiles.stopSharing('instagram'), { code: 'PROFILE_BUSY' });
+  profiles.unlockProfile('instagram', 'task-a');
+  assert.throws(() => profiles.deleteProfile('youtube'), { code: 'PROFILE_SHARED' });
+  profiles.deleteProfile('instagram');
+  assert.equal(profiles.getSessionProfileId('youtube'), 'youtube');
+});
+test('invalid sharing requests and corrupt sharing cycles fail without altering metadata', () => {
+  const { dir, profiles } = create();
+  assert.throws(() => profiles.shareSession('youtube', ['missing']));
+  assert.throws(() => profiles.shareSession('youtube', []));
+  const file = path.join(dir, 'profiles.json');
+  const data = JSON.parse(readFileSync(file, 'utf8'));
+  data.profiles.find(p => p.id === 'youtube').sharedWith = 'instagram';
+  data.profiles.find(p => p.id === 'instagram').sharedWith = 'youtube';
+  writeFileSync(file, JSON.stringify(data));
+  assert.throws(() => new ProfileManager(dir), { code: 'PROFILE_STORE_INVALID' });
+});
+
+test('legacy profile metadata preserves original session identity when upgraded', () => {
+  const { dir } = create();
+  const file = path.join(dir, 'profiles.json');
+  const legacy = { version: 1, activeProfileId: 'default', profiles: [{ id: 'default', name: 'Default', createdAt: 123 }] };
+  writeFileSync(file, JSON.stringify(legacy));
+  const profiles = new ProfileManager(dir);
+  assert.equal(profiles.getSessionProfileId('default'), 'default');
+  profiles.createProfile('Tambahan');
+  assert.equal(JSON.parse(readFileSync(file, 'utf8')).version, 2);
+  assert.equal(profiles.getProfile('default').createdAt, 123);
+});

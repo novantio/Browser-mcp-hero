@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { resolveAddress, isWebUrl, parseCommand, parseBounds } = require('../dist/shared/navigation');
+const { resolveAddress, isWebUrl, parseCommand, parseBounds, isAuthHost, isPopupWindow } = require('../dist/shared/navigation');
 
 test('normalizes URLs and search terms without leaking credentials to navigation', () => {
   assert.equal(resolveAddress(' example.com '), 'https://example.com/');
@@ -38,4 +38,38 @@ test('profile commands reject unsafe IDs and excess fields at IPC boundary', () 
     { action: 'create-profile', name: 'x'.repeat(41) },
     { action: 'save-session', extra: true }
   ]) assert.throws(() => parseCommand(input));
+});
+
+test('share IPC schema rejects empty, duplicate, unsafe or injected targets', () => {
+  assert.deepEqual(parseCommand({ action: 'share-session', targetIds: ['instagram', 'research'] }), { action: 'share-session', targetIds: ['instagram', 'research'] });
+  for (const input of [
+    { action: 'share-session', targetIds: [] },
+    { action: 'share-session', targetIds: ['instagram', 'instagram'] },
+    { action: 'share-session', targetIds: ['../outside'] },
+    { action: 'share-session', targetIds: ['instagram'], sourceId: 'youtube' },
+    { action: 'stop-sharing', all: true }
+  ]) assert.throws(() => parseCommand(input));
+});
+
+test('identifies auth hosts and popup windows correctly', () => {
+  assert.equal(isAuthHost('https://accounts.google.com/gsi/select'), true);
+  assert.equal(isAuthHost('https://sub.accounts.google.com/oauth'), true);
+  assert.equal(isAuthHost('https://appleid.apple.com/auth/authorize'), true);
+  assert.equal(isAuthHost('https://login.microsoftonline.com/common/oauth2'), true);
+  assert.equal(isAuthHost('https://login.live.com/oauth20_authorize.srf'), true);
+  assert.equal(isAuthHost('https://www.google.com/search'), false);
+  assert.equal(isAuthHost('https://en.wikipedia.org/wiki/OAuth'), false);
+  assert.equal(isAuthHost('about:blank'), false);
+
+  // Popup with features
+  assert.equal(isPopupWindow({ url: 'https://example.com', features: 'width=500,height=600' }), true);
+  // Popup with disposition new-window
+  assert.equal(isPopupWindow({ url: 'https://example.com', disposition: 'new-window' }), true);
+  // Popup with named window
+  assert.equal(isPopupWindow({ url: 'https://example.com', frameName: 'gsi_login' }), true);
+  // Popup with Google auth URL
+  assert.equal(isPopupWindow({ url: 'https://accounts.google.com/gsi/select' }), true);
+  // Regular link clicked with target _blank
+  assert.equal(isPopupWindow({ url: 'https://example.com', frameName: '', features: '', disposition: 'foreground-tab' }), false);
+  assert.equal(isPopupWindow({ url: 'https://example.com', frameName: '_blank', features: '', disposition: 'foreground-tab' }), false);
 });

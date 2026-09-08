@@ -7,6 +7,33 @@ export function isWebUrl(value: string): boolean {
   } catch { return false; }
 }
 
+export function isAuthHost(value: string): boolean {
+  if (!value || !isWebUrl(value)) return false;
+  try {
+    const host = new URL(value).hostname.toLowerCase();
+    return host === 'accounts.google.com' ||
+           host.endsWith('.accounts.google.com') ||
+           host === 'appleid.apple.com' ||
+           host === 'login.microsoftonline.com' ||
+           host === 'login.live.com';
+  } catch { return false; }
+}
+
+export interface WindowOpenDetails {
+  url?: string;
+  frameName?: string;
+  features?: string;
+  disposition?: string;
+}
+
+export function isPopupWindow(details: WindowOpenDetails): boolean {
+  if (details.features && details.features.trim().length > 0) return true;
+  if (details.disposition === 'new-window') return true;
+  if (details.frameName && details.frameName !== '_blank') return true;
+  if (details.url && isAuthHost(details.url)) return true;
+  return false;
+}
+
 export function resolveAddress(value: string): string {
   const input = value.trim();
   if (!input || input.length > 8192) throw new Error('Masukkan alamat atau kata pencarian yang valid.');
@@ -26,7 +53,7 @@ export function resolveAddress(value: string): string {
 export function parseCommand(value: unknown): BrowserCommand {
   if (!value || typeof value !== 'object') throw new Error('Perintah tidak valid.');
   const data = value as Record<string, unknown>;
-  const simple = ['new-tab', 'back', 'forward', 'reload', 'stop', 'home', 'save-session'];
+  const simple = ['new-tab', 'back', 'forward', 'reload', 'stop', 'home', 'save-session', 'open-google', 'stop-sharing'];
   if (typeof data.action !== 'string') throw new Error('Aksi tidak valid.');
   const keys = Object.keys(data);
   if (simple.includes(data.action) && keys.length === 1) return data as BrowserCommand;
@@ -42,6 +69,16 @@ export function parseCommand(value: unknown): BrowserCommand {
   if (['switch-profile', 'delete-profile'].includes(data.action) && typeof data.profileId === 'string' &&
       /^[a-z0-9][a-z0-9-]{0,63}$/.test(data.profileId) && keys.length === 2) {
     return { action: data.action as 'switch-profile' | 'delete-profile', profileId: data.profileId };
+  }
+
+  if (data.action === 'share-session' && keys.length === 2 && Array.isArray(data.targetIds) &&
+      data.targetIds.length > 0 && data.targetIds.length <= 20 &&
+      data.targetIds.every(id => typeof id === 'string' && /^[a-z0-9][a-z0-9-]{0,63}$/.test(id)) &&
+      new Set(data.targetIds).size === data.targetIds.length) {
+    return { action: 'share-session', targetIds: data.targetIds as string[] };
+  }
+  if (data.action === 'resume-human-intervention' && typeof data.taskId === 'string' && data.taskId.length <= 100 && keys.length === 2) {
+    return { action: 'resume-human-intervention', taskId: data.taskId };
   }
   throw new Error('Perintah tidak dikenal atau argumen tidak valid.');
 }

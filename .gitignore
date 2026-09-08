@@ -5,3 +5,16 @@ test-results/
 .env.*
 *.pem
 *.log
+
+# Temporary test artifacts & screenshots
+*.png
+*.tmp
+*.dump
+video_comments.txt
+tiktok_api_comments.json
+tiktok_comments_dump.txt
+tiktok_comprehensive_analysis.json
+tiktok_full_sample_comments.json
+desktop_*.png
+screenshot_*.png
+
