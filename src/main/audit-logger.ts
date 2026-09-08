@@ -117,12 +117,48 @@ export class AuditLogger {
         return `Tekan tombol ${params.key}`;
       case 'automation.extract':
         return `Ekstraksi data: ${params.selector}`;
+      case 'automation.observe':
+        return `Observasi semantik halaman`;
+      case 'automation.selectOption':
+        return `Pilih opsi dropdown ${params.selector || ''}`;
+      case 'automation.check':
+        return `Ubah status centang ${params.selector || ''}`;
+      case 'automation.hover':
+        return `Arahkan kursor mouse ke ${params.selector || ''}`;
+      case 'automation.inspectForm':
+        return `Inspeksi struktur formulir ${params.formSelector || ''}`.trim();
+      case 'automation.fillForm':
+        return `Isi formulir otomatis (${Object.keys((params.fields as any) || {}).length} field)`;
+      case 'automation.findElement':
+        return `Pencarian semantik elemen: "${params.query || ''}"`;
+      case 'automation.getState':
+        return `Ambil ringkasan status browser`;
       case 'automation.screenshot':
         return `Ambil screenshot halaman`;
+      case 'automation.getConsoleLogs':
+        return `Ambil log konsol browser`;
+      case 'automation.getNetworkActivity':
+        return `Ambil ringkasan aktivitas jaringan`;
       case 'automation.waitFor':
-        return `Menunggu ${params.selector ? `elemen ${params.selector}` : `${params.ms}ms`}`;
+        if (params.networkIdle) return 'Menunggu jaringan tenang (network idle)';
+        if (params.expression) return 'Menunggu evaluasi ekspresi JavaScript';
+        return `Menunggu ${params.selector ? `elemen ${params.selector}${params.state ? ` (${params.state})` : ''}` : `${params.ms}ms`}`;
       case 'automation.scroll':
         return `Scroll halaman (${params.direction || 'down'})`;
+      case 'automation.healSelector':
+        return `Perbaikan selector otomatis: ${params.selector || ''}`;
+      case 'automation.detectChallenge':
+        return `Deteksi tantangan bot / CAPTCHA`;
+      case 'automation.uploadFile':
+        return `Unggah file ke elemen input (${Array.isArray(params.filePaths) ? params.filePaths.length : 1} file)`;
+      case 'automation.waitForDownload':
+        return `Menunggu proses unduhan selesai`;
+      case 'automation.createCheckpoint':
+        return `Simpan checkpoint formulir (${params.name || 'default'})`;
+      case 'automation.rollbackCheckpoint':
+        return `Kembalikan formulir dari checkpoint (${params.name || ''})`;
+      case 'automation.act':
+        return `Eksekusi aksi otonom: ${params.intent} ${params.target || ''}`.trim();
       case 'tasks.create':
         return `Memulai tugas otomasi`;
       case 'tasks.complete':

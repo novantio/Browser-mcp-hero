@@ -1,0 +1,217 @@
+/**
+ * Runs inside the browser page; serialized without module dependencies.
+ * Extracts an AI-friendly semantic snapshot of interactive elements with stable [1], [2] IDs.
+ */
+export function observePage(options: { maxLength?: number } = {}): {
+  url: string;
+  title: string;
+  loading: boolean;
+  elements: Array<{
+    id: number;
+    tag: string;
+    role: string;
+    name: string;
+    type?: string;
+    value?: string;
+    checked?: boolean;
+    disabled?: boolean;
+    required?: boolean;
+    options?: string[];
+    selected?: string;
+    href?: string;
+  }>;
+  text: string;
+} {
+  const url = window.location.href;
+  const title = document.title || 'Tanpa judul';
+  const loading = document.readyState !== 'complete';
+
+  // Clear previous hero element IDs
+  for (const old of document.querySelectorAll('[data-hero-id]')) {
+    old.removeAttribute('data-hero-id');
+  }
+
+  if (!document.body) {
+    return {
+      url,
+      title,
+      loading,
+      elements: [],
+      text: `URL: ${url}\nTitle: ${title}\n(Halaman kosong atau belum memuat body)`,
+    };
+  }
+
+  const isVisible = (el: Element): boolean => {
+    if (el.matches('script, style, template, noscript, iframe, object, embed, meta, link, input[type="hidden"], [hidden], [aria-hidden="true"]')) {
+      return false;
+    }
+    for (let parent: Element | null = el; parent; parent = parent.parentElement) {
+      const style = getComputedStyle(parent);
+      if (style.display === 'none' || style.visibility !== 'visible' || style.opacity === '0') {
+        return false;
+      }
+    }
+    return Boolean(el.getClientRects().length);
+  };
+
+  const interactiveSelector = [
+    'button',
+    'a[href]',
+    'input',
+    'select',
+    'textarea',
+    '[role="button"]',
+    '[role="checkbox"]',
+    '[role="radio"]',
+    '[role="link"]',
+    '[role="textbox"]',
+    '[role="combobox"]',
+    '[role="menuitem"]',
+    '[role="tab"]',
+    '[role="switch"]',
+    'summary',
+    '[tabindex]:not([tabindex="-1"])',
+  ].join(',');
+
+  const rawCandidates = Array.from(document.body.querySelectorAll(interactiveSelector));
+
+  // Filter visible and remove redundant outer containers when inner is also a candidate
+  const visible = rawCandidates.filter(isVisible);
+  const filtered = visible.filter(el => {
+    // If this candidate contains another interactive candidate, keep the more specific inner one
+    const hasInteractiveChild = visible.some(other => other !== el && el.contains(other));
+    if (hasInteractiveChild && !el.matches('select')) return false;
+    return true;
+  });
+
+  const elements: Array<{
+    id: number;
+    tag: string;
+    role: string;
+    name: string;
+    type?: string;
+    value?: string;
+    checked?: boolean;
+    disabled?: boolean;
+    required?: boolean;
+    options?: string[];
+    selected?: string;
+    href?: string;
+  }> = [];
+
+  let nextId = 1;
+  const lines: string[] = [];
+
+  for (const el of filtered) {
+    const id = nextId++;
+    el.setAttribute('data-hero-id', String(id));
+
+    const tag = el.tagName.toLowerCase();
+    let role = el.getAttribute('role') || '';
+    if (!role) {
+      if (tag === 'button') role = 'button';
+      else if (tag === 'a') role = 'link';
+      else if (tag === 'select') role = 'combobox';
+      else if (tag === 'textarea') role = 'textbox';
+      else if (tag === 'input') {
+        const inputType = (el as HTMLInputElement).type || 'text';
+        if (['checkbox', 'radio'].includes(inputType)) role = inputType;
+        else if (['button', 'submit', 'reset'].includes(inputType)) role = 'button';
+        else role = 'textbox';
+      } else {
+        role = tag;
+      }
+    }
+
+    // Determine accessible name
+    let name = '';
+    if (el.getAttribute('aria-label')) {
+      name = el.getAttribute('aria-label')!;
+    } else if (el.getAttribute('aria-labelledby')) {
+      const labelEl = document.getElementById(el.getAttribute('aria-labelledby')!);
+      if (labelEl) name = (labelEl.textContent || '').trim();
+    } else if (el instanceof HTMLInputElement && ['button', 'submit', 'reset'].includes(el.type)) {
+      name = el.value || '';
+    } else if (el.id) {
+      const labelFor = document.querySelector(`label[for="${el.id}"]`);
+      if (labelFor) name = (labelFor.textContent || '').trim();
+    }
+    if (!name && (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) {
+      name = el.placeholder || el.name || '';
+    }
+    if (!name) {
+      name = ((el instanceof HTMLElement ? el.innerText : el.textContent) || '').trim();
+    }
+    name = name.replace(/\s+/g, ' ').slice(0, 100);
+
+    const item: (typeof elements)[0] = {
+      id,
+      tag,
+      role,
+      name,
+    };
+
+    const outlineParts: string[] = [`[${id}]`, role];
+
+    if (el instanceof HTMLInputElement) {
+      item.type = el.type || 'text';
+      if (['checkbox', 'radio'].includes(el.type)) {
+        item.checked = el.checked;
+        outlineParts.push(el.checked ? '(checked)' : '(unchecked)');
+      } else if (el.type === 'password') {
+        item.value = el.value ? '••••••••' : '';
+        outlineParts.push('(password)');
+      } else if (!['button', 'submit', 'reset'].includes(el.type)) {
+        item.value = el.value || '';
+        outlineParts.push(`(value: "${el.value || ''}")`);
+      }
+      if (el.required) item.required = true;
+      if (el.disabled) item.disabled = true;
+    } else if (el instanceof HTMLTextAreaElement) {
+      item.value = el.value || '';
+      outlineParts.push(`(value: "${el.value || ''}")`);
+      if (el.required) item.required = true;
+      if (el.disabled) item.disabled = true;
+    } else if (el instanceof HTMLSelectElement) {
+      const opts = Array.from(el.options).map(o => (o.text || o.value).trim());
+      item.options = opts.slice(0, 30);
+      const selected = el.selectedOptions[0]?.text || el.value || '';
+      item.selected = selected;
+      outlineParts.push(`(selected: "${selected}", options: ${opts.length})`);
+      if (el.disabled) item.disabled = true;
+    } else if (el instanceof HTMLAnchorElement && el.href) {
+      try {
+        const parsed = new URL(el.href);
+        item.href = parsed.pathname + parsed.search;
+        outlineParts.push(`-> ${item.href}`);
+      } catch {
+        item.href = el.href;
+      }
+    }
+
+    if (name) {
+      outlineParts.splice(2, 0, `"${name}"`);
+    }
+
+    if (el.matches(':disabled') || el.closest('[disabled], [aria-disabled="true"]')) {
+      item.disabled = true;
+      outlineParts.push('[disabled]');
+    }
+
+    elements.push(item);
+    lines.push(outlineParts.join(' '));
+  }
+
+  const maxLen = Math.min(Math.max(options.maxLength ?? 30000, 1000), 100000);
+  const header = `URL: ${url}\nTitle: ${title}\nStatus: ${loading ? 'Loading...' : 'Ready'}\nInteractive elements (${elements.length}):\n`;
+  const body = lines.join('\n');
+  const text = (header + body).slice(0, maxLen);
+
+  return {
+    url,
+    title,
+    loading,
+    elements,
+    text,
+  };
+}

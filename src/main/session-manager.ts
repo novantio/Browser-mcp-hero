@@ -1,10 +1,19 @@
 import { session } from 'electron';
 import type { Session } from 'electron';
 import { ProfileManager } from './profile-manager';
+import { DownloadManager } from './download-manager';
 
 export class SessionManager {
   private readonly sessions = new Map<string, Session>();
-  constructor(private readonly profiles: ProfileManager) {}
+  private readonly downloadManager: DownloadManager;
+
+  constructor(private readonly profiles: ProfileManager, downloadManager?: DownloadManager) {
+    this.downloadManager = downloadManager || new DownloadManager();
+  }
+
+  getDownloadManager(): DownloadManager {
+    return this.downloadManager;
+  }
 
   getSession(profileId: string): Session { return this.getPrivateSession(this.profiles.getSessionProfileId(profileId)); }
 
@@ -17,7 +26,7 @@ export class SessionManager {
     browserSession.setUserAgent(cleanUserAgent);
     browserSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
     browserSession.setPermissionCheckHandler(() => false);
-    browserSession.on('will-download', event => event.preventDefault());
+    this.downloadManager.attachSession(browserSession);
 
     // Automatically persist session cookies across restarts by giving them an expiration date
     browserSession.cookies.on('changed', (_event, cookie, _cause, removed) => {

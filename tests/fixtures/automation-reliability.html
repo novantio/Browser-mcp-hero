@@ -1,0 +1,137 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><style>
+body { margin: 24px; font: 16px sans-serif; }
+section { margin: 12px 0; }
+.covered { position: relative; width: 180px; height: 35px; }
+.cover { position: absolute; inset: 0; background: #ddd; z-index: 1; }
+</style></head><body>
+<h1>Automation reliability fixture</h1>
+<!-- A deliberately small controlled-value tracker, not React itself. Like React,
+     the instance setter tracks programmatic changes and the input listener only
+     updates application state when the native value differs from that tracker. -->
+<form id="login"><input id="username"><button id="login-submit">Sign in</button></form>
+<output id="submitted"></output>
+<section><textarea id="notes">Initial</textarea><output id="note-state">Initial</output></section>
+<input id="readonly" readonly value="unchanged"><input id="disabled" disabled value="unchanged">
+<div id="noneditable">Unchanged text</div>
+<section><div id="ancestor">Open report<button id="nested">Open report</button></div></section>
+<section><button id="partial">Save settings</button><button id="exact">Save</button></section>
+<section><button id="duplicate-a">Duplicate</button><button id="duplicate-b">Duplicate</button></section>
+<button id="hidden" style="display:none">Hidden target</button><button id="disabled-button" disabled>Disabled target</button>
+<div class="covered"><button id="occluded">Occluded target</button><div class="cover"></div></div>
+<section id="form-controls">
+  <select id="country">
+    <option value="id">Indonesia</option>
+    <option value="my">Malaysia</option>
+    <option value="sg">Singapore</option>
+  </select>
+  <output id="selected-country">id</output>
+  <label><input type="checkbox" id="agree"> I agree to terms</label>
+  <output id="agree-state">false</output>
+  <div id="hover-box" style="width: 100px; height: 30px; background: #eee;">Hover here</div>
+  <output id="hover-state">idle</output>
+  <div id="dismiss-target" style="display: block;">Popup Banner</div>
+  <button id="dismiss-btn" onclick="document.querySelector('#dismiss-target').style.display='none'">Dismiss</button>
+</section>
+<section id="form-intelligence-section">
+  <form id="registration-form" action="/register" method="POST">
+    <h2>Pendaftaran Akun</h2>
+    <div>
+      <label for="fullname">Nama Lengkap</label>
+      <input type="text" id="fullname" name="fullname" placeholder="Masukkan nama lengkap" required>
+    </div>
+    <div>
+      <label for="user-email">Alamat Email</label>
+      <input type="email" id="user-email" name="email" placeholder="nama@domain.com" required>
+    </div>
+    <div>
+      <label for="user-password">Kata Sandi</label>
+      <input type="password" id="user-password" name="password" placeholder="Minimal 8 karakter" required>
+    </div>
+    <div>
+      <label for="reg-role">Peran Pengguna</label>
+      <select id="reg-role" name="role">
+        <option value="developer">Pengembang</option>
+        <option value="designer">Desainer</option>
+        <option value="manager">Manajer Proyek</option>
+      </select>
+    </div>
+    <div>
+      <label for="reg-bio">Biodata Singkat</label>
+      <textarea id="reg-bio" name="bio" placeholder="Ceritakan tentang diri Anda"></textarea>
+    </div>
+    <div>
+      <label><input type="checkbox" id="reg-newsletter" name="newsletter"> Langganan buletin berita</label>
+    </div>
+    <div>
+      <button type="submit" id="btn-submit-reg">Daftar Sekarang</button>
+    </div>
+  </form>
+  <output id="reg-result"></output>
+  <div id="semantic-search-zone">
+    <a href="/help" id="help-link" aria-label="Pusat Bantuan dan Panduan Pengguna">Bantuan</a>
+    <button id="btn-confirm-payment" data-testid="checkout-confirm-btn">Konfirmasi Pembayaran Anda</button>
+  </div>
+  <div id="file-upload-zone" style="margin-top: 15px;">
+    <label for="file-uploader">Unggah Berkas</label>
+    <input type="file" id="file-uploader" name="attachment">
+    <output id="file-upload-status"></output>
+  </div>
+  <div id="healing-zone" style="margin-top: 15px;">
+    <button id="btn-order-target" data-testid="order-submit-btn" class="btn primary-action">Kirim Pesanan Baru</button>
+  </div>
+  <div id="act-zone" style="margin-top: 15px;">
+    <button id="btn-act-target" data-testid="act-target-btn">Tombol Aksi AI</button>
+    <output id="act-result"></output>
+  </div>
+  <div id="challenge-zone" style="margin-top: 15px;">
+    <button id="btn-add-challenge" type="button" onclick="document.getElementById('challenge-container').innerHTML = '<div class=\'cf-turnstile\'><iframe src=\'https://challenges.cloudflare.com/mock\' title=\'Turnstile\'></iframe></div>';">Add Challenge</button>
+    <button id="btn-remove-challenge" type="button" onclick="document.getElementById('challenge-container').innerHTML = '';">Remove Challenge</button>
+    <div id="challenge-container"></div>
+  </div>
+</section>
+<script>
+window.actions = [];
+for (const button of document.querySelectorAll('button')) button.addEventListener('click', () => actions.push(button.id));
+function controlled(element, initial, onChange) {
+  const descriptor = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(element), 'value');
+  let tracked = initial;
+  Object.defineProperty(element, 'value', {
+    configurable: true, get() { return descriptor.get.call(this); },
+    set(value) { tracked = String(value); descriptor.set.call(this, value); }
+  });
+  element.value = initial;
+  element.addEventListener('input', () => {
+    if (descriptor.get.call(element) !== tracked) {
+      tracked = descriptor.get.call(element); onChange(tracked);
+    }
+  });
+}
+let username = '';
+controlled(document.querySelector('#username'), '', value => { username = value; });
+controlled(document.querySelector('#notes'), 'Initial', value => { document.querySelector('#note-state').textContent = value; });
+document.querySelector('#login').addEventListener('submit', event => {
+  event.preventDefault(); document.querySelector('#submitted').textContent = username || 'EMPTY_USERNAME';
+});
+document.querySelector('#country').addEventListener('change', e => {
+  document.querySelector('#selected-country').textContent = e.target.value;
+});
+document.querySelector('#agree').addEventListener('change', e => {
+  document.querySelector('#agree-state').textContent = String(e.target.checked);
+});
+const hoverBox = document.querySelector('#hover-box');
+hoverBox.addEventListener('mouseenter', () => {
+  document.querySelector('#hover-state').textContent = 'hovered';
+});
+document.querySelector('#registration-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  document.querySelector('#reg-result').textContent = 'REGISTERED: ' + document.querySelector('#fullname').value;
+});
+document.querySelector('#file-uploader').addEventListener('change', (e) => {
+  const file = e.target.files && e.target.files[0];
+  document.querySelector('#file-upload-status').textContent = file ? file.name : '';
+});
+document.querySelector('#btn-act-target').addEventListener('click', () => {
+  document.querySelector('#act-result').textContent = 'ACT_CLICKED';
+});
+</script></body></html>

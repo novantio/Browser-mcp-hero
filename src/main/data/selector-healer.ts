@@ -13,7 +13,7 @@ export class SelectorHealer {
           const snippet = ${JSON.stringify((contextSnippet || '').toLowerCase().trim())};
           
           // Ekstrak keyword dari broken selector
-          const words = broken.replace(/[^a-zA-Z0-9_-]/g, ' ').split(/\\s+/).filter(w => w.length > 2);
+          const words = broken.replace(/[^a-zA-Z0-9]/g, ' ').split(/\\s+/).filter(w => w.length > 2);
           const elements = Array.from(document.querySelectorAll('*')).slice(0, 1000);
           const results = [];
 

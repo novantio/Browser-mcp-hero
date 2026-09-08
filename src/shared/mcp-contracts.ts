@@ -16,6 +16,245 @@ const tab = z.object({
   id, title: z.string(), url: z.string(), loading: z.boolean(), canGoBack: z.boolean(), canGoForward: z.boolean(), error: z.string().nullable(),
 }).strict();
 const ok = z.object({ ok: z.literal(true) }).strict();
+const expectCondition = z.object({
+  selector: short.optional(),
+  text: short.optional(),
+  url: short.optional(),
+  timeoutMs: z.number().int().min(100).max(30000).optional(),
+}).strict();
+const actionResult = z.object({
+  ok: z.literal(true),
+  status: z.enum(['verified', 'unverified', 'not_executed']).optional(),
+  detail: z.string().optional(),
+  healed: z.boolean().optional(),
+}).strict();
+const observedElement = z.object({
+  id: z.number().int().min(1),
+  tag: z.string(),
+  role: z.string(),
+  name: z.string(),
+  type: z.string().optional(),
+  value: z.string().optional(),
+  checked: z.boolean().optional(),
+  disabled: z.boolean().optional(),
+  required: z.boolean().optional(),
+  options: z.array(z.string()).optional(),
+  selected: z.string().optional(),
+  href: z.string().optional(),
+}).strict();
+const observeResult = z.object({
+  url: z.string(),
+  title: z.string(),
+  loading: z.boolean(),
+  elements: z.array(observedElement),
+  text: z.string(),
+}).strict();
+const consoleEntry = z.object({
+  level: z.enum(['info', 'warn', 'error', 'debug']),
+  message: z.string(),
+  source: z.string().optional(),
+  line: z.number().int().optional(),
+  timestamp: z.number(),
+  tabId: z.string().optional(),
+}).strict();
+const consoleLogsResult = z.object({
+  entries: z.array(consoleEntry),
+  summary: z.object({
+    total: z.number().int(),
+    errorCount: z.number().int(),
+    warnCount: z.number().int(),
+    infoCount: z.number().int(),
+  }).strict(),
+}).strict();
+const networkActivityEntry = z.object({
+  id: z.string(),
+  url: z.string(),
+  method: z.string(),
+  status: z.number().int().optional(),
+  mimeType: z.string().optional(),
+  durationMs: z.number(),
+}).strict();
+const networkActivityResult = z.object({
+  inflightCount: z.number().int(),
+  inflightRequests: z.array(z.object({
+    id: z.string(),
+    url: z.string(),
+    method: z.string(),
+    durationMs: z.number(),
+  }).strict()),
+  failedRequests: z.array(networkActivityEntry),
+  recentRequests: z.array(networkActivityEntry),
+  summary: z.object({
+    totalRecorded: z.number().int(),
+    inflightCount: z.number().int(),
+    failedCount: z.number().int(),
+  }).strict(),
+}).strict();
+const formField = z.object({
+  name: z.string(),
+  id: z.string(),
+  elementId: z.number().int().min(1),
+  tag: z.enum(['input', 'select', 'textarea']),
+  type: z.string().optional(),
+  label: z.string(),
+  value: z.string().optional(),
+  placeholder: z.string().optional(),
+  required: z.boolean(),
+  disabled: z.boolean(),
+  readOnly: z.boolean(),
+  checked: z.boolean().optional(),
+  options: z.array(z.object({
+    value: z.string(),
+    text: z.string(),
+    selected: z.boolean(),
+  }).strict()).optional(),
+}).strict();
+
+const formSubmitButton = z.object({
+  elementId: z.number().int().min(1).optional(),
+  text: z.string().optional(),
+  tag: z.string(),
+  selector: z.string().optional(),
+}).strict();
+
+const inspectFormResult = z.object({
+  forms: z.array(z.object({
+    id: z.string(),
+    name: z.string().optional(),
+    action: z.string().optional(),
+    method: z.string().optional(),
+    elementId: z.number().int().min(1).optional(),
+    fields: z.array(formField),
+    submitButton: formSubmitButton.optional(),
+  }).strict()),
+}).strict();
+
+const fillFormResult = z.object({
+  ok: z.boolean(),
+  filled: z.array(z.object({
+    field: z.string(),
+    elementId: z.number().int().min(1).optional(),
+    matchedBy: z.string(),
+    type: z.string(),
+  }).strict()),
+  skipped: z.array(z.object({
+    field: z.string(),
+    reason: z.string(),
+  }).strict()),
+  submitted: z.boolean(),
+  valid: z.boolean(),
+  summary: z.string(),
+}).strict();
+
+const foundElement = z.object({
+  elementId: z.number().int().min(1),
+  score: z.number(),
+  name: z.string(),
+  role: z.string(),
+  tag: z.string(),
+  selector: z.string().optional(),
+  boundingBox: z.object({
+    x: z.number(),
+    y: z.number(),
+    width: z.number(),
+    height: z.number(),
+  }).strict(),
+  attributes: z.record(z.string(), z.string()),
+}).strict();
+
+const findElementResult = z.object({
+  query: z.string(),
+  elements: z.array(foundElement),
+}).strict();
+
+const getStateResult = z.object({
+  activeTab: tab.nullable(),
+  tabs: z.array(tab),
+  activeProfile: z.object({
+    id: z.string(),
+    name: z.string(),
+    isLocked: z.boolean(),
+  }).strict(),
+  taskStatus: z.string(),
+  focusedElement: z.object({
+    elementId: z.number().int().min(1).optional(),
+    tag: z.string(),
+    role: z.string().optional(),
+    name: z.string().optional(),
+    id: z.string().optional(),
+  }).strict().nullable(),
+  network: z.object({
+    inflightCount: z.number().int(),
+  }).strict(),
+  console: z.object({
+    errorCount: z.number().int(),
+    warnCount: z.number().int(),
+  }).strict(),
+}).strict();
+
+const healSelectorResult = z.object({
+  targetSelector: z.string(),
+  resolvedSelector: z.string(),
+  confidence: z.number(),
+  strategyUsed: z.string(),
+  candidates: z.array(z.object({
+    selector: z.string(),
+    confidence: z.number(),
+    tag: z.string(),
+    sampleText: z.string(),
+  }).strict()),
+}).strict();
+
+const detectChallengeResult = z.object({
+  detected: z.boolean(),
+  provider: z.string().optional(),
+  details: z.string().optional(),
+}).strict();
+
+const uploadFileResult = z.object({
+  ok: z.literal(true),
+  fileCount: z.number().int(),
+  files: z.array(z.string()),
+}).strict();
+
+const waitForDownloadResult = z.object({
+  ok: z.literal(true),
+  fileName: z.string(),
+  filePath: z.string(),
+  sizeBytes: z.number(),
+  mimeType: z.string(),
+}).strict();
+
+const createCheckpointResult = z.object({
+  ok: z.literal(true),
+  name: z.string(),
+  url: z.string(),
+  fieldsCount: z.number().int(),
+  timestamp: z.number(),
+}).strict();
+
+const rollbackCheckpointResult = z.object({
+  ok: z.literal(true),
+  name: z.string(),
+  url: z.string(),
+  restoredCount: z.number().int(),
+}).strict();
+
+const actResult = z.object({
+  ok: z.boolean(),
+  intent: z.string(),
+  targetResolved: z.object({
+    elementId: z.number().int().min(1).optional(),
+    name: z.string(),
+    role: z.string(),
+    selector: z.string().optional(),
+  }).strict().optional(),
+  healed: z.boolean().optional(),
+  verified: z.boolean().optional(),
+  challengeDetected: z.boolean().optional(),
+  message: z.string(),
+}).strict();
+
 const selected = z.object({ activeProfileId: id }).strict();
 export interface ToolContract {
   name: string; method: string; description: string;
@@ -42,14 +281,38 @@ export const toolContracts: ToolContract[] = [
   define('browser_new_tab', 'tabs.new', 'Buka tab pada profil task.', { ...taskInput, url: short.optional() }, z.array(tab)),
   define('browser_close_tab', 'tabs.close', 'Tutup tab tertentu pada profil task.', { ...taskInput, tabId: id }, z.array(tab)),
   define('browser_switch_tab', 'tabs.switch', 'Aktifkan tab pada profil task.', { ...taskInput, tabId: id }, z.array(tab)),
-  define('browser_navigate', 'tabs.navigate', 'Navigasi tab aktif milik task.', { ...taskInput, url: short }, z.object({ url: z.string() }).strict()),
+  define('browser_navigate', 'tabs.navigate', 'Navigasi tab aktif milik task.', { ...taskInput, url: short, expect: expectCondition.optional() }, z.object({ url: z.string(), status: z.enum(['verified', 'unverified']).optional() }).strict()),
   ...['reload', 'back', 'forward'].map(action => define('browser_' + action, 'tabs.' + action, 'Navigasi tab aktif milik task: ' + action, taskInput, ok)),
-  define('browser_click', 'automation.click', 'Klik berdasarkan selector atau teks. Berikan tepat satu target.', {
-    ...taskInput, selector: short.optional(), text: short.optional(),
+  define('browser_observe', 'automation.observe', 'Ambil snapshot semantik halaman dengan nomor ID elemen [1], [2] untuk AI agent.', {
+    ...taskInput, maxLength: z.number().int().min(100).max(100000).optional(),
+  }, observeResult),
+  define('browser_click', 'automation.click', 'Klik berdasarkan elementId, selector, atau teks. Berikan tepat satu target.', {
+    ...taskInput, elementId: z.number().int().min(1).optional(), selector: short.optional(), text: short.optional(), expect: expectCondition.optional(),
+  }, actionResult),
+  define('browser_type', 'automation.type', 'Ketik pada input berdasarkan elementId atau selector. Isi ketikan tidak dicatat dalam log.', {
+    ...taskInput, elementId: z.number().int().min(1).optional(), selector: short.optional(), text: z.string().max(20000), clear: z.boolean().optional(), pressEnter: z.boolean().optional(), expect: expectCondition.optional(),
+  }, actionResult),
+  define('browser_select_option', 'automation.selectOption', 'Pilih opsi dropdown select berdasarkan value, text, atau index.', {
+    ...taskInput, elementId: z.number().int().min(1).optional(), selector: short.optional(), value: z.string().max(500).optional(), text: z.string().max(500).optional(), index: z.number().int().min(0).max(10000).optional(), expect: expectCondition.optional(),
+  }, actionResult),
+  define('browser_check', 'automation.check', 'Centang atau hapus centang pada checkbox atau radio button.', {
+    ...taskInput, elementId: z.number().int().min(1).optional(), selector: short.optional(), checked: z.boolean().default(true), expect: expectCondition.optional(),
+  }, actionResult),
+  define('browser_hover', 'automation.hover', 'Arahkan kursor mouse ke elemen untuk memicu hover state.', {
+    ...taskInput, elementId: z.number().int().min(1).optional(), selector: short.optional(), text: short.optional(),
   }, ok),
-  define('browser_type', 'automation.type', 'Ketik pada input. Isi ketikan tidak dicatat dalam log.', {
-    ...taskInput, selector: short, text: z.string().max(20000), clear: z.boolean().optional(), pressEnter: z.boolean().optional(),
-  }, ok),
+  define('browser_inspect_form', 'automation.inspectForm', 'Inspeksi form dan ekstrak daftar fields, tipe input, opsi select, dan tombol submit.', {
+    ...taskInput, formSelector: short.optional(), formElementId: z.number().int().min(1).optional(),
+  }, inspectFormResult),
+  define('browser_fill_form', 'automation.fillForm', 'Isi multi-field form (input, textarea, select, checkbox, radio) secara simultan dengan resolusi cerdas.', {
+    ...taskInput, formSelector: short.optional(), formElementId: z.number().int().min(1).optional(),
+    fields: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])),
+    submit: z.boolean().optional(), validate: z.boolean().optional(),
+  }, fillFormResult),
+  define('browser_find_element', 'automation.findElement', 'Cari elemen interaktif berdasarkan deskripsi semantik/intensi dan dapatkan elementId serta bounding box.', {
+    ...taskInput, query: short, role: z.string().max(50).optional(), tag: z.string().max(50).optional(), maxResults: z.number().int().min(1).max(20).optional(),
+  }, findElementResult),
+  define('browser_get_state', 'automation.getState', 'Ambil ringkasan status terpadu browser (tab aktif, fokus keyboard, status jaringan, log konsol).', taskInput, getStateResult),
   define('browser_press_key', 'automation.pressKey', 'Tekan tombol navigasi keyboard.', { ...taskInput, key: z.enum(['Enter', 'Tab', 'Escape', 'ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Backspace', 'Delete', 'Home', 'End', 'PageUp', 'PageDown', 'Space']) }, ok),
   define('browser_get_dom', 'automation.getDOM', 'Baca halaman tersaring; nilai formulir, elemen tersembunyi dan script tidak dikirim.', {
     ...taskInput, format: z.enum(['outline', 'text', 'html']).optional(), maxLength: z.number().int().min(1).max(100000).optional(),
@@ -57,9 +320,28 @@ export const toolContracts: ToolContract[] = [
   define('browser_extract', 'automation.extract', 'Ekstrak elemen berulang sebagai JSON tersaring.', {
     ...taskInput, selector: short, maxItems: z.number().int().min(1).max(200).optional(),
   }, z.array(z.object({ tag: z.string(), text: z.string().max(1000), attributes: z.record(z.string(), z.string()) }).strict()).max(200)),
-  define('browser_screenshot', 'automation.screenshot', 'Tangkapan layar tab milik task. Konten yang terlihat pada layar ikut tertangkap.', taskInput, z.string()),
-  define('browser_wait', 'automation.waitFor', 'Tunggu durasi, selector, atau teks; tepat satu kondisi.', {
+  define('browser_screenshot', 'automation.screenshot', 'Tangkapan layar tab milik task. Mendukung crop berdasarkan elementId, selector, atau region.', {
+    ...taskInput,
+    elementId: z.number().int().min(1).optional(),
+    selector: short.optional(),
+    region: z.object({
+      x: z.number().int().min(0),
+      y: z.number().int().min(0),
+      width: z.number().int().min(1).max(10000),
+      height: z.number().int().min(1).max(10000),
+    }).strict().optional(),
+  }, z.string()),
+  define('browser_get_console_logs', 'automation.getConsoleLogs', 'Ambil log konsol browser (log, warn, error) dari tab task untuk mendiagnosis kegagalan halaman.', {
+    ...taskInput, level: z.enum(['info', 'warn', 'error', 'debug', 'all']).optional(), limit: z.number().int().min(1).max(200).optional(), clear: z.boolean().optional(),
+  }, consoleLogsResult),
+  define('browser_get_network_activity', 'automation.getNetworkActivity', 'Ambil ringkasan aktivitas jaringan (inflight requests, request gagal 4xx/5xx, dan request terbaru) dari tab task.', {
+    ...taskInput, filter: z.string().max(200).optional(), onlyFailed: z.boolean().optional(), limit: z.number().int().min(1).max(200).optional(),
+  }, networkActivityResult),
+  define('browser_wait', 'automation.waitFor', 'Tunggu durasi, selector, teks, network idle, atau fungsi evaluasi; tepat satu kondisi utama.', {
     ...taskInput, ms: z.number().int().min(1).max(60000).optional(), selector: short.optional(), text: short.optional(),
+    state: z.enum(['visible', 'hidden', 'attached', 'detached']).optional(),
+    networkIdle: z.boolean().optional(),
+    expression: z.string().min(1).max(2000).optional(),
     timeoutMs: z.number().int().min(500).max(60000).optional(),
   }, z.boolean()),
   define('browser_scroll', 'automation.scroll', 'Gulir halaman task.', {
@@ -71,5 +353,32 @@ export const toolContracts: ToolContract[] = [
   define('browser_set_visibility', 'browser.setVisibility', 'Tampilkan atau sembunyikan jendela browser (mode headless/background).', {
     ...taskInput, visible: z.boolean(),
   }, ok),
+  define('browser_heal_selector', 'automation.healSelector', 'Analisis dan perbaiki CSS selector yang rusak menggunakan kesamaan semantik dan teks.', {
+    ...taskInput, selector: short, previousTag: z.string().max(30).optional(), contextSnippet: z.string().max(200).optional(),
+  }, healSelectorResult),
+  define('browser_detect_challenge', 'automation.detectChallenge', 'Deteksi apakah halaman terhadang tantangan keamanan bot (Cloudflare Turnstile, reCAPTCHA, hCaptcha, Arkose).', taskInput, detectChallengeResult),
+  define('browser_upload_file', 'automation.uploadFile', 'Unggah file lokal ke elemen input[type=file] menggunakan protokol native CDP.', {
+    ...taskInput, elementId: z.number().int().min(1).optional(), selector: short.optional(), filePaths: z.array(z.string().min(1)).min(1),
+  }, uploadFileResult),
+  define('browser_wait_for_download', 'automation.waitForDownload', 'Tunggu hingga unduhan file selesai pada sesi browser dan dapatkan path lokalnya.', {
+    ...taskInput, timeoutMs: z.number().int().min(1000).max(120000).optional(), fileNamePattern: z.string().max(200).optional(),
+  }, waitForDownloadResult),
+  define('browser_create_checkpoint', 'automation.createCheckpoint', 'Simpan snapshot kondisi isian formulir dan URL halaman aktif untuk rollback.', {
+    ...taskInput, name: z.string().max(100).optional(),
+  }, createCheckpointResult),
+  define('browser_rollback_checkpoint', 'automation.rollbackCheckpoint', 'Kembalikan kondisi isian formulir dari checkpoint yang telah disimpan.', {
+    ...taskInput, name: z.string().max(100),
+  }, rollbackCheckpointResult),
+  define('browser_act', 'automation.act', 'Eksekusi aksi tingkat tinggi (klik, ketik, pilih, centang) dengan auto-healing dan verifikasi hasil dalam 1 siklus.', {
+    ...taskInput,
+    intent: z.enum(['click', 'type', 'select', 'check', 'submit', 'hover']),
+    target: short,
+    text: z.string().max(20000).optional(),
+    value: z.string().max(1000).optional(),
+    checked: z.boolean().optional(),
+    expect: expectCondition.optional(),
+    autoHeal: z.boolean().optional(),
+    autoChallengeIntervention: z.boolean().optional(),
+  }, actResult),
 ];
 export function contractFor(method: string): ToolContract | undefined { return toolContracts.find(tool => tool.method === method); }

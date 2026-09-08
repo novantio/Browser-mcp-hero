@@ -240,8 +240,25 @@ test('MCP Tool Contracts include all Web Data OS tools and browser_evaluate', ()
   const toolNames = toolContracts.map(t => t.name);
   const dataNames = dataContracts.map(t => t.name);
 
-  // Verify browser_evaluate exists
+  // Verify browser_evaluate and Milestone 1, 2 & 3 tools exist
   assert.ok(toolNames.includes('browser_evaluate'), 'browser_evaluate must be in toolContracts');
+  assert.ok(toolNames.includes('browser_observe'), 'browser_observe must be in toolContracts');
+  assert.ok(toolNames.includes('browser_select_option'), 'browser_select_option must be in toolContracts');
+  assert.ok(toolNames.includes('browser_check'), 'browser_check must be in toolContracts');
+  assert.ok(toolNames.includes('browser_hover'), 'browser_hover must be in toolContracts');
+  assert.ok(toolNames.includes('browser_get_console_logs'), 'browser_get_console_logs must be in toolContracts');
+  assert.ok(toolNames.includes('browser_get_network_activity'), 'browser_get_network_activity must be in toolContracts');
+  assert.ok(toolNames.includes('browser_inspect_form'), 'browser_inspect_form must be in toolContracts');
+  assert.ok(toolNames.includes('browser_fill_form'), 'browser_fill_form must be in toolContracts');
+  assert.ok(toolNames.includes('browser_find_element'), 'browser_find_element must be in toolContracts');
+  assert.ok(toolNames.includes('browser_get_state'), 'browser_get_state must be in toolContracts');
+  assert.ok(toolNames.includes('browser_heal_selector'), 'browser_heal_selector must be in toolContracts');
+  assert.ok(toolNames.includes('browser_detect_challenge'), 'browser_detect_challenge must be in toolContracts');
+  assert.ok(toolNames.includes('browser_upload_file'), 'browser_upload_file must be in toolContracts');
+  assert.ok(toolNames.includes('browser_wait_for_download'), 'browser_wait_for_download must be in toolContracts');
+  assert.ok(toolNames.includes('browser_create_checkpoint'), 'browser_create_checkpoint must be in toolContracts');
+  assert.ok(toolNames.includes('browser_rollback_checkpoint'), 'browser_rollback_checkpoint must be in toolContracts');
+  assert.ok(toolNames.includes('browser_act'), 'browser_act must be in toolContracts');
 
   // Verify Web Data OS tools exist
   const requiredDataTools = [

@@ -115,7 +115,8 @@ export class McpBridge {
       const valid = contract ? contract.output.safeParse(result) : null;
       if (valid && !valid.success) throw new RpcError('INVALID_OUTPUT', 'Hasil operasi tidak sesuai kontrak.');
       this.log(method, params, 'SUCCESS', started);
-      if (!res.destroyed) res.end(JSON.stringify({ ok: true, result }));
+      const resultPayload = result === undefined ? null : result;
+      if (!res.destroyed) res.end(JSON.stringify({ ok: true, result: resultPayload }));
     } catch (error) {
       const safe = publicError(error);
       this.log(method, params, 'FAILED', started, safe.message);
@@ -391,25 +392,140 @@ export class McpBridge {
         browser.newTab(); if (p.url) browser.execute({ action: 'navigate', input: String(p.url) }); return tabs();
       case 'tabs.close': browser.execute({ action: 'close-tab', tabId }); return tabs();
       case 'tabs.switch': browser.execute({ action: 'switch-tab', tabId }); return tabs();
-      case 'tabs.navigate': browser.execute({ action: 'navigate', input: String(p.url) }); return { url: redactText(String(p.url)) };
+      case 'tabs.navigate': {
+        browser.execute({ action: 'navigate', input: String(p.url) });
+        if (p.expect) {
+          const verified = await browser.verifyCondition(browser.getActiveWebContents(), p.expect as any, signal);
+          return { url: redactText(String(p.url)), status: verified ? 'verified' : 'unverified' };
+        }
+        return { url: redactText(String(p.url)) };
+      }
       case 'tabs.reload': browser.execute({ action: 'reload' }); break;
       case 'tabs.back': browser.execute({ action: 'back' }); break;
       case 'tabs.forward': browser.execute({ action: 'forward' }); break;
+      case 'automation.observe':
+        return await browser.observe({ maxLength: p.maxLength as number | undefined });
       case 'automation.click':
-        if (Number(Boolean(p.selector)) + Number(Boolean(p.text)) !== 1) throw new RpcError('INVALID_INPUT', 'Berikan tepat satu target klik.');
-        await browser.click({ selector: p.selector as string | undefined, text: p.text as string | undefined }); break;
+        if (Number(Boolean(p.selector)) + Number(Boolean(p.text)) + Number(p.elementId !== undefined) !== 1)
+          throw new RpcError('INVALID_INPUT', 'Berikan tepat satu target klik.');
+        return (await browser.click({ elementId: p.elementId as number | undefined, selector: p.selector as string | undefined, text: p.text as string | undefined, expect: p.expect as any }, signal)) || { ok: true };
       case 'automation.type':
-        await browser.type(String(p.selector), String(p.text), { clear: Boolean(p.clear), pressEnter: Boolean(p.pressEnter) }, signal); break;
+        if (Number(Boolean(p.selector)) + Number(p.elementId !== undefined) !== 1)
+          throw new RpcError('INVALID_INPUT', 'Berikan tepat satu target ketik.');
+        return (await browser.type(p.elementId !== undefined ? { elementId: p.elementId as number } : String(p.selector), String(p.text), { clear: Boolean(p.clear), pressEnter: Boolean(p.pressEnter), expect: p.expect as any }, signal)) || { ok: true };
+      case 'automation.selectOption':
+        if (Number(Boolean(p.selector)) + Number(p.elementId !== undefined) !== 1)
+          throw new RpcError('INVALID_INPUT', 'Berikan tepat satu target select.');
+        return (await browser.selectOption(
+          p.elementId !== undefined ? { elementId: p.elementId as number } : { selector: String(p.selector) },
+          { value: p.value as string | undefined, text: p.text as string | undefined, index: p.index as number | undefined, expect: p.expect as any },
+          signal
+        )) || { ok: true };
+      case 'automation.check':
+        if (Number(Boolean(p.selector)) + Number(p.elementId !== undefined) !== 1)
+          throw new RpcError('INVALID_INPUT', 'Berikan tepat satu target checkbox.');
+        return (await browser.setCheckbox(
+          p.elementId !== undefined ? { elementId: p.elementId as number } : { selector: String(p.selector) },
+          p.checked !== undefined ? Boolean(p.checked) : true,
+          { expect: p.expect as any },
+          signal
+        )) || { ok: true };
+      case 'automation.hover':
+        if (Number(Boolean(p.selector)) + Number(Boolean(p.text)) + Number(p.elementId !== undefined) !== 1)
+          throw new RpcError('INVALID_INPUT', 'Berikan tepat satu target hover.');
+        await browser.hover({ elementId: p.elementId as number | undefined, selector: p.selector as string | undefined, text: p.text as string | undefined }, signal);
+        break;
       case 'automation.pressKey': await browser.pressKey(String(p.key), signal); break;
       case 'automation.getDOM': return browser.getDOM({ format: p.format as 'text' | 'html' | 'outline' | undefined, maxLength: p.maxLength as number | undefined });
+      case 'automation.inspectForm':
+        return await browser.inspectForm({
+          formSelector: p.formSelector as string | undefined,
+          formElementId: p.formElementId as number | undefined,
+        });
+      case 'automation.fillForm':
+        return await browser.fillForm({
+          formSelector: p.formSelector as string | undefined,
+          formElementId: p.formElementId as number | undefined,
+          fields: (p.fields as Record<string, string | number | boolean>) || {},
+          submit: p.submit as boolean | undefined,
+          validate: p.validate as boolean | undefined,
+        }, signal);
+      case 'automation.findElement':
+        return await browser.findElement({
+          query: String(p.query || ''),
+          role: p.role as string | undefined,
+          tag: p.tag as string | undefined,
+          maxResults: p.maxResults as number | undefined,
+        });
+      case 'automation.getState':
+        return await browser.getState();
       case 'automation.extract': return browser.extract(String(p.selector), p.maxItems as number | undefined);
-      case 'automation.screenshot': return browser.captureScreenshot();
-      case 'automation.waitFor':
-        if ([p.ms, p.selector, p.text].filter(v => v !== undefined).length !== 1) throw new RpcError('INVALID_INPUT', 'Berikan tepat satu kondisi tunggu.');
-        return browser.waitFor({ ms: p.ms as number | undefined, selector: p.selector as string | undefined, text: p.text as string | undefined, timeoutMs: p.timeoutMs as number | undefined }, signal);
+      case 'automation.screenshot':
+        return await browser.captureScreenshot({
+          elementId: p.elementId as number | undefined,
+          selector: p.selector as string | undefined,
+          region: p.region as { x: number; y: number; width: number; height: number } | undefined,
+        });
+      case 'automation.getConsoleLogs':
+        return browser.getConsoleLogs({
+          level: p.level as 'info' | 'warn' | 'error' | 'debug' | 'all' | undefined,
+          limit: p.limit as number | undefined,
+          clear: p.clear as boolean | undefined,
+        });
+      case 'automation.getNetworkActivity':
+        return browser.getNetworkActivity({
+          filter: p.filter as string | undefined,
+          onlyFailed: p.onlyFailed as boolean | undefined,
+          limit: p.limit as number | undefined,
+        });
+      case 'automation.waitFor': {
+        const primaryConditions = [p.ms, p.selector, p.text, p.networkIdle, p.expression].filter(v => v !== undefined && v !== false);
+        if (primaryConditions.length !== 1) {
+          throw new RpcError('INVALID_INPUT', 'Berikan tepat satu kondisi tunggu (ms, selector, text, networkIdle, atau expression).');
+        }
+        if (p.state !== undefined && p.selector === undefined) {
+          throw new RpcError('INVALID_INPUT', 'Parameter state hanya berlaku ketika selector ditentukan.');
+        }
+        return browser.waitFor({
+          ms: p.ms as number | undefined,
+          selector: p.selector as string | undefined,
+          text: p.text as string | undefined,
+          state: p.state as 'visible' | 'hidden' | 'attached' | 'detached' | undefined,
+          networkIdle: p.networkIdle ? Boolean(p.networkIdle) : undefined,
+          expression: p.expression as string | undefined,
+          timeoutMs: p.timeoutMs as number | undefined,
+        }, signal);
+      }
       case 'automation.scroll': await browser.scroll({ direction: p.direction as 'up' | 'down' | 'top' | 'bottom' | undefined, amount: p.amount as number | undefined }); break;
       case 'automation.evaluate': return await browser.evaluateSafe(String(p.script));
       case 'browser.setVisibility': browser.setVisibility(Boolean(p.visible)); break;
+      case 'automation.healSelector':
+        return await browser.healSelector(
+          String(p.selector),
+          p.previousTag as string | undefined,
+          p.contextSnippet as string | undefined
+        );
+      case 'automation.detectChallenge':
+        return await browser.detectChallenge();
+      case 'automation.uploadFile':
+        if (Number(Boolean(p.selector)) + Number(p.elementId !== undefined) !== 1) {
+          throw new RpcError('INVALID_INPUT', 'Berikan tepat satu target upload.');
+        }
+        return await browser.uploadFile(
+          { elementId: p.elementId as number | undefined, selector: p.selector as string | undefined },
+          p.filePaths as string[]
+        );
+      case 'automation.waitForDownload':
+        return await browser.waitForDownload(
+          { timeoutMs: p.timeoutMs as number | undefined, fileNamePattern: p.fileNamePattern as string | undefined },
+          signal
+        );
+      case 'automation.createCheckpoint':
+        return await browser.createCheckpoint(p.name as string | undefined);
+      case 'automation.rollbackCheckpoint':
+        return await browser.rollbackCheckpoint(String(p.name), signal);
+      case 'automation.act':
+        return await browser.act(p as any, signal);
       default: throw new RpcError('UNKNOWN_METHOD', 'Metode tidak tersedia.');
     }
     return { ok: true };

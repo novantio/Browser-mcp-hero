@@ -1,4 +1,11 @@
-import { RpcError } from '../shared/rpc-error';
+import { RpcError, assertPageAction } from '../shared/rpc-error';
+import { clickPageElement, fillPageInput, hoverPageElement, selectPageOption, setCheckboxState } from './page-actions';
+import { observePage } from './page-observer';
+import { inspectPageForms, fillPageForm, findPageElements, getPageFocusedElement, getElementBoundingBox, captureFormCheckpoint, restoreFormCheckpoint } from './page-forms';
+import { detectPageChallenge } from './challenge-detector';
+import { SelectorHealer } from './data/selector-healer';
+import { existsSync } from 'node:fs';
+import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { readSafePage } from './page-snapshot';
 import { randomUUID } from 'node:crypto';
@@ -9,8 +16,10 @@ import { isPopupWindow, isWebUrl, resolveAddress } from '../shared/navigation';
 import type { BrowserCommand, BrowserState, BrowserTab, ViewBounds } from '../shared/types';
 import type { ExtractionSpec, Json } from '../shared/data-contracts';
 import { convert, setPath } from './data/processing';
-import type { NetworkIntelligence } from './data/network-intelligence';
+import { NetworkIntelligence } from './data/network-intelligence';
+import { ConsoleMonitor } from './console-monitor';
 
+export interface ExpectCondition { selector?: string; text?: string; url?: string; timeoutMs?: number }
 interface TabEntry { state: BrowserTab; view: WebContentsView | null; profileId: string }
 
 export class BrowserManager {
@@ -20,7 +29,10 @@ export class BrowserManager {
   private bounds: ViewBounds = { x: 0, y: 124, width: 900, height: 600 };
   private readonly activeTabs = new Map<string, string>();
   private disposed = false;
-  private network: NetworkIntelligence | null = null;
+  private readonly consoleMonitor = new ConsoleMonitor();
+  private network: NetworkIntelligence = new NetworkIntelligence();
+  private readonly healer = new SelectorHealer();
+  private readonly checkpoints = new Map<string, { url: string; timestamp: number; fields: any[] }>();
 
   constructor(private readonly window: BrowserWindow, private readonly publish: (state: BrowserState) => void,
       private readonly profiles: ProfileManager, private readonly sessions: SessionManager) {
@@ -73,9 +85,8 @@ export class BrowserManager {
     this.window.contentView.addChildView(view);
     view.setBackgroundColor('#ffffff');
     const contents = view.webContents;
-    if (this.network) {
-      this.network.attach(contents);
-    }
+    this.consoleMonitor.attach(tab.state.id, contents);
+    this.network.attach(contents);
     const update = () => {
       if (this.disposed || contents.isDestroyed() || !this.tabs.has(tab.state.id)) return;
       tab.state.loading = contents.isLoading();
@@ -397,62 +408,216 @@ export class BrowserManager {
     return tab.view!.webContents;
   }
 
-  async captureScreenshot(): Promise<string> {
+  async captureScreenshot(options?: {
+    elementId?: number;
+    selector?: string;
+    region?: { x: number; y: number; width: number; height: number };
+  }): Promise<string> {
+    if (!this.window.isVisible() || this.window.isMinimized()) {
+      throw new RpcError('SCREENSHOT_UNAVAILABLE', 'Screenshot tidak tersedia karena jendela tertutup, diminimalkan, atau disembunyikan.');
+    }
+    const tab = this.active();
+    if (tab.state.error) {
+      throw new RpcError('SCREENSHOT_NOT_READY', 'Halaman mengalami kesalahan muat.');
+    }
     const contents = this.getActiveWebContents();
-    const image = await contents.capturePage();
-    return image.toPNG().toString('base64');
-  }
+    if (contents.isDestroyed() || contents.isCrashed()) {
+      throw new RpcError('SCREENSHOT_UNAVAILABLE', 'Tampilan halaman tidak tersedia.');
+    }
 
-  async click(target: { selector?: string; text?: string }): Promise<void> {
-    const contents = this.getActiveWebContents();
-    const result = await contents.executeJavaScript(`
-      (() => {
-        let el = null;
-        if (${JSON.stringify(target.selector || '')}) {
-          el = document.querySelector(${JSON.stringify(target.selector || '')});
-        } else if (${JSON.stringify(target.text || '')}) {
-          const targetText = ${JSON.stringify(target.text || '')}.trim().toLowerCase();
-          const candidates = Array.from(document.querySelectorAll('button, a, input[type="button"], input[type="submit"], [role="button"], span, p, h1, h2, h3, h4, h5, h6, div'));
-          el = candidates.find(c => (c.innerText || c.textContent || '').trim().toLowerCase().includes(targetText));
+    let timer: NodeJS.Timeout | undefined;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new RpcError('SCREENSHOT_NOT_READY', 'Pengambilan screenshot melebihi batas waktu.')), 5000);
+    });
+
+    try {
+      const capturePromise = contents.capturePage().catch(err => {
+        const msg = String(err && (err as any).message ? (err as any).message : err);
+        if (msg.includes('UnknownVizError') || msg.includes('surface')) {
+          throw new RpcError('SCREENSHOT_UNAVAILABLE', 'Screenshot tidak tersedia karena permukaan render tidak aktif.');
         }
-        if (!el) return { found: false };
-        el.scrollIntoView({ behavior: 'instant', block: 'center' });
-        el.click();
-        return { found: true };
-      })()
-    `);
-    if (!result || !result.found) {
-      throw new RpcError('ELEMENT_NOT_FOUND', 'Elemen untuk diklik tidak ditemukan.');
+        throw new RpcError('SCREENSHOT_NOT_READY', 'Gagal mengambil gambar tampilan halaman.');
+      });
+      let image = await Promise.race([capturePromise, timeoutPromise]);
+      const size = image.getSize();
+      if (!size.width || !size.height) {
+        throw new RpcError('SCREENSHOT_NOT_READY', 'Hasil screenshot kosong.');
+      }
+
+      if (options?.region) {
+        const reg = options.region;
+        const x = Math.min(Math.max(0, reg.x), size.width - 1);
+        const y = Math.min(Math.max(0, reg.y), size.height - 1);
+        const w = Math.min(Math.max(1, reg.width), size.width - x);
+        const h = Math.min(Math.max(1, reg.height), size.height - y);
+        image = image.crop({ x, y, width: w, height: h });
+      } else if (options?.elementId !== undefined || options?.selector) {
+        const box = (await contents.executeJavaScript(
+          '(' + getElementBoundingBox.toString() + ')(' + JSON.stringify({ elementId: options.elementId, selector: options.selector }) + ')'
+        )) as { x: number; y: number; width: number; height: number } | null;
+
+        if (!box || box.width <= 0 || box.height <= 0) {
+          throw new RpcError('ELEMENT_NOT_FOUND', 'Elemen untuk target screenshot tidak ditemukan atau tersembunyi.');
+        }
+        const x = Math.min(Math.max(0, box.x), size.width - 1);
+        const y = Math.min(Math.max(0, box.y), size.height - 1);
+        const w = Math.min(Math.max(1, box.width), size.width - x);
+        const h = Math.min(Math.max(1, box.height), size.height - y);
+        image = image.crop({ x, y, width: w, height: h });
+      }
+
+      return image.toPNG().toString('base64');
+    } finally {
+      if (timer) clearTimeout(timer);
     }
   }
 
-  async type(selector: string, text: string, options: { clear?: boolean; pressEnter?: boolean } = {}, signal?: AbortSignal): Promise<void> {
-    const contents = this.getActiveWebContents();
-    const result = await contents.executeJavaScript(`
-      (() => {
-        const el = document.querySelector(${JSON.stringify(selector)});
-        if (!el) return { found: false };
-        el.scrollIntoView({ behavior: 'instant', block: 'center' });
-        el.focus();
-        if (${Boolean(options.clear)}) {
-          el.value = '';
-          el.dispatchEvent(new Event('input', { bubbles: true }));
-          el.dispatchEvent(new Event('change', { bubbles: true }));
-        }
-        el.value = (el.value || '') + ${JSON.stringify(text)};
-        el.dispatchEvent(new Event('input', { bubbles: true }));
-        el.dispatchEvent(new Event('change', { bubbles: true }));
-        return { found: true };
-      })()
-    `);
-    if (!result || !result.found) {
-      throw new RpcError('ELEMENT_NOT_FOUND', 'Kolom input tidak ditemukan.');
+  async verifyCondition(contents: Electron.WebContents, expect: ExpectCondition, signal?: AbortSignal): Promise<boolean> {
+    const timeout = Math.min(Math.max(expect.timeoutMs ?? 5000, 100), 30000);
+    const start = Date.now();
+    while (Date.now() - start < timeout) {
+      signal?.throwIfAborted();
+      if (contents.isDestroyed() || contents.isCrashed()) return false;
+
+      let urlMatched = true;
+      if (expect.url) {
+        const currentUrl = contents.getURL() || '';
+        urlMatched = currentUrl.includes(expect.url);
+      }
+
+      if (urlMatched && !expect.selector && !expect.text) {
+        return true;
+      }
+
+      if (urlMatched) {
+        const domMatched = await contents.executeJavaScript(`
+          (() => {
+            if (${JSON.stringify(expect.selector || '')}) {
+              if (!document.querySelector(${JSON.stringify(expect.selector || '')})) return false;
+            }
+            if (${JSON.stringify(expect.text || '')}) {
+              const bodyText = (document.body ? (document.body.innerText || document.body.textContent || '') : '').trim().toLowerCase();
+              const expected = ${JSON.stringify(expect.text || '')}.trim().toLowerCase();
+              if (!bodyText.includes(expected)) return false;
+            }
+            return true;
+          })()
+        `).catch(() => false);
+
+        if (domMatched) return true;
+      }
+
+      await delay(100, undefined, { signal });
     }
+    return false;
+  }
+
+  async observe(options: { maxLength?: number } = {}): Promise<ReturnType<typeof observePage>> {
+    const contents = this.getActiveWebContents();
+    const result = await contents.executeJavaScript(
+      '(' + observePage.toString() + ')(' + JSON.stringify(options) + ')'
+    );
+    return result as ReturnType<typeof observePage>;
+  }
+
+  async click(target: { elementId?: number; selector?: string; text?: string; expect?: ExpectCondition; autoHeal?: boolean }, signal?: AbortSignal): Promise<{ ok: true; status?: 'verified' | 'unverified'; detail?: string; healed?: boolean }> {
+    const contents = this.getActiveWebContents();
+    signal?.throwIfAborted();
+    let result = await contents.executeJavaScript(
+      '(' + clickPageElement.toString() + ')(' + JSON.stringify(target) + ')'
+    );
+
+    let wasHealed = false;
+    if (result === 'ELEMENT_NOT_FOUND' && target.selector && target.autoHeal !== false) {
+      const healed = await this.healer.heal(contents, target.selector);
+      if (healed && healed.confidence >= 0.6 && healed.resolvedSelector !== target.selector) {
+        result = await contents.executeJavaScript(
+          '(' + clickPageElement.toString() + ')(' + JSON.stringify({ selector: healed.resolvedSelector }) + ')'
+        );
+        if (!result) wasHealed = true;
+      }
+    }
+
+    assertPageAction(result);
+
+    if (target.expect) {
+      const verified = await this.verifyCondition(contents, target.expect, signal);
+      if (verified) return { ok: true, status: 'verified', healed: wasHealed || undefined };
+      return { ok: true, status: 'unverified', detail: 'Kondisi verifikasi yang diharapkan belum terpenuhi dalam batas waktu.', healed: wasHealed || undefined };
+    }
+    return { ok: true, healed: wasHealed || undefined };
+  }
+
+  async type(target: string | { elementId?: number; selector?: string; autoHeal?: boolean }, text: string, options: { clear?: boolean; pressEnter?: boolean; expect?: ExpectCondition } = {}, signal?: AbortSignal): Promise<{ ok: true; status?: 'verified' | 'unverified'; detail?: string; healed?: boolean }> {
+    const contents = this.getActiveWebContents();
+    signal?.throwIfAborted();
+    let result = await contents.executeJavaScript(
+      '(' + fillPageInput.toString() + ')(' + JSON.stringify(target) + ',' + JSON.stringify(text) + ',' + Boolean(options.clear) + ')');
+
+    let wasHealed = false;
+    const targetSelector = typeof target === 'string' ? target : target.selector;
+    const autoHeal = typeof target === 'object' ? target.autoHeal !== false : true;
+
+    if (result === 'ELEMENT_NOT_FOUND' && targetSelector && autoHeal) {
+      const healed = await this.healer.heal(contents, targetSelector);
+      if (healed && healed.confidence >= 0.6 && healed.resolvedSelector !== targetSelector) {
+        result = await contents.executeJavaScript(
+          '(' + fillPageInput.toString() + ')(' + JSON.stringify({ selector: healed.resolvedSelector }) + ',' + JSON.stringify(text) + ',' + Boolean(options.clear) + ')');
+        if (!result) wasHealed = true;
+      }
+    }
+
+    assertPageAction(result);
     if (options.pressEnter) {
       signal?.throwIfAborted();
       contents.sendInputEvent({ type: 'keyDown', keyCode: 'Enter' });
       contents.sendInputEvent({ type: 'keyUp', keyCode: 'Enter' });
     }
+    if (options.expect) {
+      const verified = await this.verifyCondition(contents, options.expect, signal);
+      if (verified) return { ok: true, status: 'verified', healed: wasHealed || undefined };
+      return { ok: true, status: 'unverified', detail: 'Kondisi verifikasi yang diharapkan belum terpenuhi dalam batas waktu.', healed: wasHealed || undefined };
+    }
+    return { ok: true, healed: wasHealed || undefined };
+  }
+
+  async selectOption(target: { elementId?: number; selector?: string }, option: { value?: string; text?: string; index?: number; expect?: ExpectCondition }, signal?: AbortSignal): Promise<{ ok: true; status?: 'verified' | 'unverified'; detail?: string }> {
+    const contents = this.getActiveWebContents();
+    signal?.throwIfAborted();
+    const result = await contents.executeJavaScript(
+      '(' + selectPageOption.toString() + ')(' + JSON.stringify(target) + ',' + JSON.stringify(option) + ')'
+    );
+    assertPageAction(result);
+    if (option.expect) {
+      const verified = await this.verifyCondition(contents, option.expect, signal);
+      if (verified) return { ok: true, status: 'verified' };
+      return { ok: true, status: 'unverified', detail: 'Kondisi verifikasi yang diharapkan belum terpenuhi dalam batas waktu.' };
+    }
+    return { ok: true };
+  }
+
+  async setCheckbox(target: { elementId?: number; selector?: string }, checked = true, options: { expect?: ExpectCondition } = {}, signal?: AbortSignal): Promise<{ ok: true; status?: 'verified' | 'unverified'; detail?: string }> {
+    const contents = this.getActiveWebContents();
+    signal?.throwIfAborted();
+    const result = await contents.executeJavaScript(
+      '(' + setCheckboxState.toString() + ')(' + JSON.stringify(target) + ',' + Boolean(checked) + ')'
+    );
+    assertPageAction(result);
+    if (options.expect) {
+      const verified = await this.verifyCondition(contents, options.expect, signal);
+      if (verified) return { ok: true, status: 'verified' };
+      return { ok: true, status: 'unverified', detail: 'Kondisi verifikasi yang diharapkan belum terpenuhi dalam batas waktu.' };
+    }
+    return { ok: true };
+  }
+
+  async hover(target: { elementId?: number; selector?: string; text?: string }, signal?: AbortSignal): Promise<void> {
+    const contents = this.getActiveWebContents();
+    signal?.throwIfAborted();
+    const result = await contents.executeJavaScript(
+      '(' + hoverPageElement.toString() + ')(' + JSON.stringify(target) + ')'
+    );
+    assertPageAction(result);
   }
 
   async pressKey(key: string, signal?: AbortSignal): Promise<void> {
@@ -473,30 +638,427 @@ export class BrowserManager {
       '(' + readSafePage.toString() + ')(' + JSON.stringify({ selector, maxItems: Math.min(Math.max(maxItems, 1), 200) }) + ')');
   }
 
-  async waitFor(options: { ms?: number; selector?: string; text?: string; timeoutMs?: number }, signal?: AbortSignal): Promise<boolean> {
+  async inspectForm(options: { formSelector?: string; formElementId?: number } = {}): Promise<ReturnType<typeof inspectPageForms>> {
+    const contents = this.getActiveWebContents();
+    const result = await contents.executeJavaScript(
+      '(' + inspectPageForms.toString() + ')(' + JSON.stringify(options) + ')'
+    );
+    return result as ReturnType<typeof inspectPageForms>;
+  }
+
+  async fillForm(options: {
+    formSelector?: string;
+    formElementId?: number;
+    fields: Record<string, string | number | boolean>;
+    submit?: boolean;
+    validate?: boolean;
+  }, signal?: AbortSignal): Promise<ReturnType<typeof fillPageForm>> {
+    const contents = this.getActiveWebContents();
+    signal?.throwIfAborted();
+    const result = await contents.executeJavaScript(
+      '(' + fillPageForm.toString() + ')(' + JSON.stringify(options) + ')'
+    );
+    return result as ReturnType<typeof fillPageForm>;
+  }
+
+  async findElement(options: {
+    query: string;
+    role?: string;
+    tag?: string;
+    maxResults?: number;
+  }): Promise<ReturnType<typeof findPageElements>> {
+    const contents = this.getActiveWebContents();
+    const result = await contents.executeJavaScript(
+      '(' + findPageElements.toString() + ')(' + JSON.stringify(options) + ')'
+    );
+    return result as ReturnType<typeof findPageElements>;
+  }
+
+  async getState(): Promise<{
+    activeTab: BrowserTab | null;
+    tabs: BrowserTab[];
+    activeProfile: { id: string; name: string; isLocked: boolean };
+    taskStatus: string;
+    focusedElement: { elementId?: number; tag: string; role?: string; name?: string; id?: string } | null;
+    network: { inflightCount: number };
+    console: { errorCount: number; warnCount: number };
+  }> {
+    const tabSnap = this.snapshot();
+    const activeTab = tabSnap.tabs.find(t => t.id === this.activeTabId) || null;
+    const activeProfile = {
+      id: this.profiles.activeProfileId,
+      name: this.profiles.getProfile(this.profiles.activeProfileId)?.name || 'Default',
+      isLocked: this.profiles.isLocked(this.profiles.activeProfileId),
+    };
+
+    let focusedElement: { elementId?: number; tag: string; role?: string; name?: string; id?: string } | null = null;
+    try {
+      const contents = this.getActiveWebContents();
+      if (!contents.isDestroyed() && !contents.isCrashed()) {
+        focusedElement = (await contents.executeJavaScript(
+          '(' + getPageFocusedElement.toString() + ')()'
+        )) as typeof focusedElement;
+      }
+    } catch {}
+
+    const consoleLogs = this.consoleMonitor.getLogs({ tabId: this.activeTabId });
+    const inflightCount = this.network.getInflightCount();
+
+    return {
+      activeTab,
+      tabs: tabSnap.tabs,
+      activeProfile,
+      taskStatus: this.profiles.isLocked(this.profiles.activeProfileId) ? 'RUNNING' : 'IDLE',
+      focusedElement,
+      network: { inflightCount },
+      console: {
+        errorCount: consoleLogs.summary.errorCount,
+        warnCount: consoleLogs.summary.warnCount,
+      },
+    };
+  }
+
+  async healSelector(selector: string, previousTag?: string, contextSnippet?: string) {
+    const contents = this.getActiveWebContents();
+    return await this.healer.heal(contents, selector, previousTag, contextSnippet);
+  }
+
+  async detectChallenge() {
+    const contents = this.getActiveWebContents();
+    return await detectPageChallenge(contents);
+  }
+
+  async uploadFile(target: { elementId?: number; selector?: string }, filePaths: string[] | string): Promise<{ ok: true; fileCount: number; files: string[] }> {
+    const pathsArray = Array.isArray(filePaths) ? filePaths : [filePaths];
+    const resolvedPaths = pathsArray.map(p => path.resolve(p));
+    for (const p of resolvedPaths) {
+      if (!existsSync(p)) {
+        throw new RpcError('FILE_NOT_FOUND', `File tidak ditemukan di disk host: ${path.basename(p)}`);
+      }
+    }
+
+    const contents = this.getActiveWebContents();
+    let selector = target.selector || '';
+    if (target.elementId !== undefined) {
+      selector = `[data-hero-id="${target.elementId}"]`;
+    }
+    if (!selector) {
+      selector = 'input[type="file"]';
+    }
+
+    if (!contents.debugger.isAttached()) {
+      try { contents.debugger.attach('1.3'); } catch {}
+    }
+
+    const expr = `document.querySelector(${JSON.stringify(selector)})`;
+    const evalRes = (await contents.debugger.sendCommand('Runtime.evaluate', { expression: expr })) as any;
+    if (!evalRes || !evalRes.result || evalRes.result.subtype === 'null' || !evalRes.result.objectId) {
+      throw new RpcError('ELEMENT_NOT_FOUND', 'Elemen input[type=file] tidak ditemukan pada halaman.');
+    }
+
+    await contents.debugger.sendCommand('DOM.setFileInputFiles', {
+      files: resolvedPaths,
+      objectId: evalRes.result.objectId,
+    });
+
+    await contents.executeJavaScript(`
+      (() => {
+        const el = ${expr};
+        if (el) {
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+      })()
+    `);
+
+    return {
+      ok: true,
+      fileCount: resolvedPaths.length,
+      files: resolvedPaths.map(p => path.basename(p)),
+    };
+  }
+
+  async waitForDownload(options: { timeoutMs?: number; fileNamePattern?: string } = {}, signal?: AbortSignal) {
+    return await this.sessions.getDownloadManager().waitForDownload(options, signal);
+  }
+
+  async createCheckpoint(name?: string): Promise<{ ok: true; name: string; url: string; fieldsCount: number; timestamp: number }> {
+    const cpName = name || `checkpoint-${Date.now()}`;
+    const contents = this.getActiveWebContents();
+    const snap = (await contents.executeJavaScript(
+      '(' + captureFormCheckpoint.toString() + ')()'
+    )) as { url: string; fields: any[] };
+
+    this.checkpoints.set(cpName, {
+      url: snap.url,
+      timestamp: Date.now(),
+      fields: snap.fields,
+    });
+
+    return {
+      ok: true,
+      name: cpName,
+      url: snap.url,
+      fieldsCount: snap.fields.length,
+      timestamp: Date.now(),
+    };
+  }
+
+  async rollbackCheckpoint(name: string, signal?: AbortSignal): Promise<{ ok: true; name: string; url: string; restoredCount: number }> {
+    const cp = this.checkpoints.get(name);
+    if (!cp) {
+      throw new RpcError('CHECKPOINT_NOT_FOUND', `Checkpoint dengan nama "${name}" tidak ditemukan.`);
+    }
+
+    const contents = this.getActiveWebContents();
+    const currentUrl = contents.getURL();
+    if (currentUrl !== cp.url) {
+      this.execute({ action: 'navigate', input: cp.url });
+      await this.waitFor({ ms: 500 }, signal);
+    }
+
+    signal?.throwIfAborted();
+    const res = (await contents.executeJavaScript(
+      '(' + restoreFormCheckpoint.toString() + ')(' + JSON.stringify({ fields: cp.fields }) + ')'
+    )) as { restoredCount: number };
+
+    return {
+      ok: true,
+      name,
+      url: cp.url,
+      restoredCount: res.restoredCount,
+    };
+  }
+
+  async act(options: {
+    intent: 'click' | 'type' | 'select' | 'check' | 'submit' | 'hover';
+    target: string;
+    text?: string;
+    value?: string;
+    checked?: boolean;
+    expect?: ExpectCondition;
+    autoHeal?: boolean;
+    autoChallengeIntervention?: boolean;
+  }, signal?: AbortSignal): Promise<{
+    ok: boolean;
+    intent: string;
+    targetResolved?: { elementId?: number; name: string; role: string; selector?: string };
+    healed?: boolean;
+    verified?: boolean;
+    challengeDetected?: boolean;
+    message: string;
+  }> {
+    const contents = this.getActiveWebContents();
+
+    const challenge = await detectPageChallenge(contents);
+    if (challenge.detected) {
+      return {
+        ok: false,
+        intent: options.intent,
+        challengeDetected: true,
+        message: `Tantangan bot terdeteksi (${challenge.provider || 'unknown'}). Selesaikan tantangan keamanan terlebih dahulu.`,
+      };
+    }
+
+    let resolvedElementId: number | undefined;
+    let resolvedSelector: string | undefined;
+    let resolvedName = '';
+    let resolvedRole = '';
+    let wasHealed = false;
+
+    const idMatch = options.target.match(/^\[?(\d+)\]?$/);
+    if (idMatch) {
+      resolvedElementId = parseInt(idMatch[1]!, 10);
+    } else {
+      const existsDirectly = await contents.executeJavaScript(`
+        (() => {
+          try {
+            const el = document.querySelector(${JSON.stringify(options.target)});
+            return Boolean(el);
+          } catch { return false; }
+        })()
+      `).catch(() => false);
+
+      if (existsDirectly) {
+        resolvedSelector = options.target;
+      } else {
+        const findRes = await this.findElement({ query: options.target, maxResults: 1 });
+        if (findRes.elements.length > 0) {
+          const best = findRes.elements[0]!;
+          resolvedElementId = best.elementId;
+          resolvedName = best.name;
+          resolvedRole = best.role;
+          resolvedSelector = best.selector;
+        } else if (options.autoHeal !== false) {
+          const healed = await this.healer.heal(contents, options.target);
+          if (healed && healed.confidence >= 0.6 && healed.resolvedSelector !== options.target) {
+            resolvedSelector = healed.resolvedSelector;
+            wasHealed = true;
+          }
+        }
+      }
+    }
+
+    if (resolvedElementId === undefined && !resolvedSelector) {
+      throw new RpcError('ELEMENT_NOT_FOUND', `Target "${options.target}" tidak ditemukan di halaman.`);
+    }
+
+    const actionTarget = resolvedElementId !== undefined ? { elementId: resolvedElementId } : { selector: resolvedSelector! };
+
+    let actionResult: any;
+    switch (options.intent) {
+      case 'click':
+        actionResult = await this.click({ ...actionTarget, expect: options.expect }, signal);
+        break;
+      case 'type':
+        actionResult = await this.type(actionTarget, options.text || '', { expect: options.expect }, signal);
+        break;
+      case 'select':
+        actionResult = await this.selectOption(actionTarget, { text: options.value, value: options.value, expect: options.expect }, signal);
+        break;
+      case 'check':
+        actionResult = await this.setCheckbox(actionTarget, options.checked !== undefined ? options.checked : true, { expect: options.expect }, signal);
+        break;
+      case 'hover':
+        await this.hover(actionTarget, signal);
+        actionResult = { ok: true, status: 'verified' };
+        break;
+      case 'submit':
+        await contents.executeJavaScript(`
+          (() => {
+            const target = ${resolvedElementId !== undefined ? `document.querySelector('[data-hero-id="${resolvedElementId}"]')` : `document.querySelector(${JSON.stringify(resolvedSelector)})`};
+            if (target) {
+              const form = target.closest('form') || target;
+              if (form instanceof HTMLFormElement) {
+                if (typeof form.requestSubmit === 'function') form.requestSubmit();
+                else form.submit();
+              } else if (typeof target.click === 'function') {
+                target.click();
+              }
+            }
+          })()
+        `);
+        if (options.expect) {
+          const verified = await this.verifyCondition(contents, options.expect, signal);
+          actionResult = { ok: true, status: verified ? 'verified' : 'unverified' };
+        } else {
+          actionResult = { ok: true };
+        }
+        break;
+      default:
+        throw new RpcError('INVALID_INPUT', `Intent "${options.intent}" tidak dikenali.`);
+    }
+
+    return {
+      ok: true,
+      intent: options.intent,
+      targetResolved: {
+        elementId: resolvedElementId,
+        name: resolvedName || options.target,
+        role: resolvedRole || options.intent,
+        selector: resolvedSelector,
+      },
+      healed: wasHealed || undefined,
+      verified: actionResult?.status === 'verified',
+      message: `Aksi ${options.intent} berhasil dieksekusi pada target "${options.target}".`,
+    };
+  }
+
+  getConsoleLogs(options: {
+    tabId?: string;
+    level?: 'info' | 'warn' | 'error' | 'debug' | 'all';
+    limit?: number;
+    clear?: boolean;
+  } = {}) {
+    const tabId = options.tabId || this.activeTabId;
+    return this.consoleMonitor.getLogs({ ...options, tabId });
+  }
+
+  getNetworkActivity(options: {
+    filter?: string;
+    onlyFailed?: boolean;
+    limit?: number;
+  } = {}) {
+    return this.network.getActivity(options);
+  }
+
+  getNetwork(): NetworkIntelligence {
+    return this.network;
+  }
+
+  async waitFor(options: {
+    ms?: number;
+    selector?: string;
+    text?: string;
+    state?: 'visible' | 'hidden' | 'attached' | 'detached';
+    networkIdle?: boolean;
+    expression?: string;
+    timeoutMs?: number;
+  }, signal?: AbortSignal): Promise<boolean> {
     if (options.ms && options.ms > 0) {
       await delay(Math.min(options.ms!, 60_000), undefined, { signal });
       return true;
     }
     const timeout = Math.min(Math.max(options.timeoutMs ?? 10_000, 500), 60_000);
+
+    if (options.networkIdle) {
+      return await this.network.waitForIdle({ idleTimeMs: 500, timeoutMs: timeout }, signal);
+    }
+
     const contents = this.getActiveWebContents();
     const start = Date.now();
+    const state = options.state || 'visible';
 
     while (Date.now() - start < timeout) {
       signal?.throwIfAborted();
-      const found = await contents.executeJavaScript(`
+      if (contents.isDestroyed() || contents.isCrashed()) {
+        throw new RpcError('PAGE_CRASHED', 'Halaman browser mengalami crash.');
+      }
+
+      const conditionMet = await contents.executeJavaScript(`
         (() => {
+          if (${JSON.stringify(options.expression || '')}) {
+            try {
+              return Boolean(eval(${JSON.stringify(options.expression)}));
+            } catch {
+              return false;
+            }
+          }
+
           if (${JSON.stringify(options.selector || '')}) {
-            return Boolean(document.querySelector(${JSON.stringify(options.selector || '')}));
+            const el = document.querySelector(${JSON.stringify(options.selector || '')});
+            const state = ${JSON.stringify(state)};
+            if (state === 'attached') return Boolean(el);
+            if (state === 'detached') return !el;
+
+            if (!el) {
+              return state === 'hidden';
+            }
+
+            const style = window.getComputedStyle(el);
+            const isBodyOrHtml = el === document.body || el === document.documentElement;
+            const hasSize = isBodyOrHtml || (el.getBoundingClientRect().width > 0 && el.getBoundingClientRect().height > 0);
+            const isVisible = style.display !== 'none' &&
+                              style.visibility !== 'hidden' &&
+                              style.visibility !== 'collapse' &&
+                              style.opacity !== '0' &&
+                              hasSize;
+
+            if (state === 'visible') return isVisible;
+            if (state === 'hidden') return !isVisible;
+            return false;
           }
+
           if (${JSON.stringify(options.text || '')}) {
-            return Boolean(document.body && document.body.innerText.includes(${JSON.stringify(options.text || '')}));
+            return Boolean(document.body && (document.body.innerText || document.body.textContent || '').includes(${JSON.stringify(options.text || '')}));
           }
+
           return true;
         })()
       `).catch(() => false);
-      if (found) return true;
-      await delay(200, undefined, { signal });
+
+      if (conditionMet) return true;
+      await delay(100, undefined, { signal });
     }
     throw new RpcError('TIMEOUT', 'Kondisi yang ditunggu belum terpenuhi.');
   }
@@ -596,22 +1158,36 @@ export class BrowserManager {
   }
 
   async evaluateSafe(script: string, timeoutMs = 15000): Promise<unknown> {
+    try {
+      new Function(script);
+    } catch (err) {
+      if (err instanceof SyntaxError) {
+        throw new RpcError('SCRIPT_SYNTAX_ERROR', 'Sintaks JavaScript tidak valid. Perbaiki skrip sebelum mencoba lagi.');
+      }
+    }
+
     const contents = this.getActiveWebContents();
-    const evalPromise = contents.executeJavaScript(`
-      (() => {
-        try {
-          return (${script});
-        } catch (err) {
-          return { error: String(err && err.message ? err.message : err) };
-        }
-      })()
-    `);
+    const wrapped = `(() => {
+      return Promise.resolve().then(() => eval(${JSON.stringify(script)}));
+    })()`;
+    const evalPromise = contents.executeJavaScript(wrapped);
     let timer: NodeJS.Timeout | undefined;
-    const timeoutPromise = new Promise((_, reject) => {
-      timer = setTimeout(() => reject(new Error('Script evaluation timed out')), timeoutMs);
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new RpcError('TIMEOUT', 'Batas waktu eksekusi skrip habis.')), timeoutMs);
     });
     try {
-      return await Promise.race([evalPromise, timeoutPromise]);
+      const result = await Promise.race([evalPromise, timeoutPromise]);
+      return result === undefined ? null : result;
+    } catch (err) {
+      if (err instanceof RpcError) throw err;
+      const message = String(err && (err as any).message ? (err as any).message : err);
+      if (message.includes('SyntaxError')) {
+        throw new RpcError('SCRIPT_SYNTAX_ERROR', 'Sintaks JavaScript tidak valid. Perbaiki skrip sebelum mencoba lagi.');
+      }
+      if (message.includes('Batas waktu') || message.includes('timed out')) {
+        throw new RpcError('TIMEOUT', 'Batas waktu eksekusi skrip habis.');
+      }
+      throw new RpcError('SCRIPT_EXECUTION_FAILED', 'Eksekusi skrip halaman gagal. Periksa logika skrip dan keadaan halaman.');
     } finally {
       if (timer) clearTimeout(timer);
     }

@@ -54,7 +54,7 @@ export function requestRpc(port: number, token: string, method: string, params: 
         try {
           const value: unknown = JSON.parse(raw);
           const parsed = z.discriminatedUnion('ok', [
-            z.object({ ok: z.literal(true), result: z.unknown() }).strict(),
+            z.object({ ok: z.literal(true), result: z.unknown().optional() }).strict(),
             z.object({ ok: z.literal(false), error: z.string(), code: z.string() }).strict(),
           ]).parse(value);
           if (!parsed.ok) { fail(new RpcError(parsed.code, parsed.error)); return; }
