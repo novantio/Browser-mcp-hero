@@ -55,4 +55,18 @@ export function reportBounds(): void {
   const rect = element('browser-surface').getBoundingClientRect();
   void window.browser.setBounds({ x: Math.round(rect.x), y: Math.round(rect.y), width: Math.round(rect.width), height: Math.round(rect.height) })
     .catch(() => showError('Area browser tidak dapat diperbarui.'));
+  syncOverlay();
+}
+
+/** True while any app dialog is visible (the web page view must then be hidden). */
+export function anyDialogOpen(): boolean {
+  return [...document.querySelectorAll<HTMLElement>('.modal-backdrop')].some(dialog => !dialog.hidden);
+}
+
+/**
+ * Sends the current dialog state, not just changes: a missed "closed" message used to
+ * leave the page view hidden for good (the white page area).
+ */
+export function syncOverlay(): void {
+  void window.browser.setOverlay(anyDialogOpen()).catch(() => {});
 }

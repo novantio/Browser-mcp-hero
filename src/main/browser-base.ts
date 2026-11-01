@@ -287,7 +287,11 @@ export abstract class BrowserBase {
 
   /** Web pages are native views drawn above the app UI; hide them while a UI dialog is open. */
   protected overlayOpen = false;
-  setOverlay(open: boolean): void { this.overlayOpen = open; this.layout(); }
+  setOverlay(open: boolean): void {
+    if (this.overlayOpen === open) return;
+    this.overlayOpen = open;
+    this.layout();
+  }
 
   layout(): void {
     const [width = 0, height = 0] = this.window.getContentSize();
