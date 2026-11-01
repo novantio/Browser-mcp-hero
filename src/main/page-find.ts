@@ -75,6 +75,7 @@ export function findPageElements(options: {
     return !hasInteractive;
   });
 
+  const nodes = new Map<number, Element>();
   const scored: Array<{
     elementId: number;
     score: number;
@@ -223,14 +224,30 @@ export function findPageElements(options: {
       boundingBox,
       attributes: attrs,
     });
+    nodes.set(elementId, el);
   }
 
   scored.sort((a, b) => b.score - a.score);
   const limit = Math.min(Math.max(options.maxResults ?? 5, 1), 20);
 
+  // A <span> inside a <button> is the same click target, not a second match: keep only
+  // one entry per nested pair (the interactive ancestor when there is one).
+  const interactive = 'button, a, input, select, textarea, summary, [role="button"], [role="link"], [role="tab"]';
+  const distinct: typeof scored = [];
+  for (const candidate of scored) {
+    const el = nodes.get(candidate.elementId)!;
+    const relatedIndex = distinct.findIndex(kept => {
+      const other = nodes.get(kept.elementId)!;
+      return other.contains(el) || el.contains(other);
+    });
+    if (relatedIndex === -1) { distinct.push(candidate); continue; }
+    const kept = nodes.get(distinct[relatedIndex]!.elementId)!;
+    if (!kept.matches(interactive) && el.matches(interactive) && el.contains(kept)) distinct[relatedIndex] = candidate;
+  }
+
   return {
     query: options.query,
-    elements: scored.slice(0, limit),
+    elements: distinct.slice(0, limit),
   };
 }
 

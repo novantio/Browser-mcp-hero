@@ -26,18 +26,32 @@ export interface ChallengeDetectionResult {
  * Analyzes the DOM, frames, and page indicators for known bot protection challenges.
  */
 export function checkPageChallenge(): ChallengeDetectionResult {
+  // Only challenges actually on screen count: sites leave a solved or closed CAPTCHA
+  // container hidden in the DOM, which must not keep reporting "challenge".
+  const isShown = (el: Element): boolean => {
+    for (let node: Element | null = el; node; node = node.parentElement) {
+      const style = getComputedStyle(node);
+      if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
+    }
+    const rect = el.getBoundingClientRect();
+    return rect.width > 4 && rect.height > 4;
+  };
+  const findShown = (selector: string): Element | null => {
+    for (const el of document.querySelectorAll(selector)) if (isShown(el)) return el;
+    return null;
+  };
   const title = (document.title || '').toLowerCase();
   const bodyText = (document.body ? (document.body.innerText || document.body.textContent || '') : '').toLowerCase();
 
   // 1. TikTok / ByteDance SecSDK CAPTCHA (puzzle slider, rotate, select 2 objects)
-  const tiktokCaptchaElem = document.querySelector(
+  const tiktokCaptchaElem = findShown(
     '#captcha_container, #captcha-verify-image, #tiktok-verify-ele, ' +
     '.captcha_verify_container, .secsdk-captcha-drag-wrapper, .secsdk-captcha-container, ' +
     '.tiktok-verify-wrapper, .captcha-verify-container, .captcha_verify_slide, ' +
     '.captcha_verify_bar, .captcha_verify_img--wrapper, [class*="secsdk-captcha"], ' +
     '[class*="captcha-verify-container"]'
   );
-  const tiktokIframe = document.querySelector(
+  const tiktokIframe = findShown(
     'iframe[src*="security-captcha"], iframe[src*="captcha.tiktok.com"], ' +
     'iframe[src*="falcon/captcha_wrapper"], iframe[src*="bytedance.com/secsdk"]'
   );
@@ -63,7 +77,7 @@ export function checkPageChallenge(): ChallengeDetectionResult {
   if (
     title.includes('just a moment...') ||
     title.includes('attention required! | cloudflare') ||
-    document.querySelector('#challenge-running, #challenge-stage, #cf-challenge-running, #challenge-body-text') ||
+    findShown('#challenge-running, #challenge-stage, #cf-challenge-running, #challenge-body-text') ||
     (bodyText.includes('checking your browser before accessing') && bodyText.includes('cloudflare'))
   ) {
     return {
@@ -74,7 +88,7 @@ export function checkPageChallenge(): ChallengeDetectionResult {
   }
 
   // 3. Cloudflare Turnstile
-  const turnstileIframe = document.querySelector(
+  const turnstileIframe = findShown(
     'iframe[src*="challenges.cloudflare.com"], iframe[src*="turnstile"], div.cf-turnstile, #turnstile-wrapper'
   );
   if (turnstileIframe) {
@@ -86,7 +100,7 @@ export function checkPageChallenge(): ChallengeDetectionResult {
   }
 
   // 4. Google reCAPTCHA (v2 / v3 / Enterprise)
-  const recaptcha = document.querySelector(
+  const recaptcha = findShown(
     'iframe[src*="google.com/recaptcha"], iframe[src*="recaptcha.net/recaptcha"], iframe[title*="recaptcha"], div.g-recaptcha, #recaptcha'
   );
   if (recaptcha) {
@@ -98,7 +112,7 @@ export function checkPageChallenge(): ChallengeDetectionResult {
   }
 
   // 5. hCaptcha
-  const hcaptcha = document.querySelector(
+  const hcaptcha = findShown(
     'iframe[src*="hcaptcha.com"], div.h-captcha, iframe[data-hcaptcha-widget-id]'
   );
   if (hcaptcha) {
@@ -110,7 +124,7 @@ export function checkPageChallenge(): ChallengeDetectionResult {
   }
 
   // 6. Arkose Labs / FunCAPTCHA
-  const arkose = document.querySelector(
+  const arkose = findShown(
     'iframe[src*="arkoselabs.com"], iframe[src*="funcaptcha"], #fc-iframe-wrap'
   );
   if (arkose) {
@@ -122,7 +136,7 @@ export function checkPageChallenge(): ChallengeDetectionResult {
   }
 
   // 7. Geetest CAPTCHA
-  const geetest = document.querySelector(
+  const geetest = findShown(
     '.geetest_holder, .geetest_wind, .geetest_radar, .geetest_popup, .geetest_panel'
   );
   if (geetest) {
@@ -134,7 +148,7 @@ export function checkPageChallenge(): ChallengeDetectionResult {
   }
 
   // 8. DataDome
-  const datadome = document.querySelector(
+  const datadome = findShown(
     'iframe[src*="datadome.co"], iframe[src*="captcha-delivery.com"]'
   );
   if (datadome || title.includes('datadome')) {
@@ -146,7 +160,7 @@ export function checkPageChallenge(): ChallengeDetectionResult {
   }
 
   // 9. AWS WAF CAPTCHA
-  const awswaf = document.querySelector('#aws-waf-captcha, iframe[src*="awswaf"]');
+  const awswaf = findShown('#aws-waf-captcha, iframe[src*="awswaf"]');
   if (awswaf || (bodyText.includes('aws waf') && bodyText.includes('captcha'))) {
     return {
       detected: true,
