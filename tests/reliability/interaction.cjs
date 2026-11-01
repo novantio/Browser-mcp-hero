@@ -221,4 +221,34 @@ module.exports = async ({ app, url, call, raw, action, expectError, reset, test,
     assert.equal(failed.status, 500);
   });
 
+  await test('browser_scroll scrolls an inner panel found by text and reports atEnd', async () => {
+    const guest = await reset();
+    // A comment panel with its own scrollbar, like TikTok's.
+    await guest.evaluate(() => {
+      const panel = document.createElement('div');
+      panel.id = 'comment-panel';
+      panel.style.cssText = 'height:150px;overflow-y:auto;border:1px solid #000';
+      panel.innerHTML = '<p>42 comments</p>' + Array.from({ length: 40 }, (_, i) => `<p>Komentar ${i + 1}</p>`).join('');
+      document.body.prepend(panel);
+    });
+    const first = await action('browser_scroll', { text: '42 comments', amount: 300 });
+    assert.equal(first.target, 'element');
+    assert.equal(first.before, 0);
+    assert.equal(first.after, 300);
+    assert.equal(await guest.evaluate(() => document.getElementById('comment-panel').scrollTop), 300);
+    const bottom = await action('browser_scroll', { selector: '#comment-panel p', direction: 'bottom' });
+    assert.equal(bottom.atEnd, true);
+    assert.equal(bottom.after, bottom.max);
+    await expectError('browser_scroll', { text: 'teks yang tidak ada di halaman' }, 'ELEMENT_NOT_FOUND');
+  });
+
+  await test('browser_scroll without a target scrolls the page instantly', async () => {
+    const guest = await reset();
+    await guest.evaluate(() => { document.body.style.minHeight = '5000px'; window.scrollTo(0, 0); });
+    const result = await action('browser_scroll', { amount: 400 });
+    assert.equal(result.target, 'page');
+    assert.equal(result.after, 400);
+    assert.equal(await guest.evaluate(() => Math.round(window.scrollY)), 400);
+  });
+
 };

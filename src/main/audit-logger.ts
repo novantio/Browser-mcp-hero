@@ -150,7 +150,7 @@ export class AuditLogger {
         if (params.expression) return 'Menunggu evaluasi ekspresi JavaScript';
         return `Menunggu ${params.selector ? `elemen ${params.selector}${params.state ? ` (${params.state})` : ''}` : `${params.ms}ms`}`;
       case 'automation.scroll':
-        return `Scroll halaman (${params.direction || 'down'})`;
+        return `Scroll ${params.elementId || params.selector || params.text ? 'panel' : 'halaman'} (${params.direction || 'down'})`;
       case 'automation.healSelector':
         return `Perbaikan selector otomatis: ${params.selector || ''}`;
       case 'automation.detectChallenge':

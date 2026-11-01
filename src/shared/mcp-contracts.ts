@@ -126,9 +126,12 @@ export const toolContracts: ToolContract[] = [
     expression: z.string().min(1).max(2000).optional(),
     timeoutMs: z.number().int().min(500).max(60000).optional(),
   }, z.boolean()),
-  define('browser_scroll', 'automation.scroll', 'Gulir halaman task.', {
-    ...taskInput, direction: z.enum(['up', 'down', 'top', 'bottom']).optional(), amount: z.number().int().min(1).max(10000).optional(),
-  }, ok),
+  define('browser_scroll', 'automation.scroll', 'Gulir halaman, atau panel yang punya scroll sendiri (komentar TikTok/YouTube, daftar chat, sidebar): berikan elementId, selector, atau text dari elemen apa pun DI DALAM panel itu (mis. text "466 comments") dan Hero menggulir kontainer scroll terdekat. Hasil before/after/max menunjukkan posisi; atEnd: true berarti sudah di dasar (tunggu sebentar lalu scroll lagi bila situs memuat konten baru). amount default 600 px.', {
+    ...taskInput, direction: z.enum(['up', 'down', 'top', 'bottom']).optional(), amount: z.number().int().min(1).max(20000).optional(),
+    elementId: z.number().int().min(1).optional(), selector: short.optional(), text: z.string().min(1).max(200).optional(),
+  }, z.object({
+    ok: z.literal(true), target: z.enum(['page', 'element']), before: z.number(), after: z.number(), max: z.number(), atStart: z.boolean(), atEnd: z.boolean(),
+  }).strict()),
   define('browser_evaluate', 'automation.evaluate', 'Jalankan ekspresi JavaScript aman pada halaman aktif tab task.', {
     ...taskInput, script: z.string().min(1).max(20000),
   }, z.unknown()),

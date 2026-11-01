@@ -162,7 +162,11 @@ export async function runBrowserAction(config: BridgeConfig, method: string, p: 
         timeoutMs: p.timeoutMs as number | undefined,
       }, signal);
     }
-    case 'automation.scroll': await browser.scroll({ direction: p.direction as 'up' | 'down' | 'top' | 'bottom' | undefined, amount: p.amount as number | undefined }); break;
+    case 'automation.scroll':
+      return await browser.scroll({
+        direction: p.direction as 'up' | 'down' | 'top' | 'bottom' | undefined, amount: p.amount as number | undefined,
+        elementId: p.elementId as number | undefined, selector: p.selector as string | undefined, text: p.text as string | undefined,
+      });
     case 'automation.evaluate': return await browser.evaluateSafe(String(p.script));
     case 'browser.setVisibility': browser.setVisibility(Boolean(p.visible)); break;
     case 'automation.healSelector':
