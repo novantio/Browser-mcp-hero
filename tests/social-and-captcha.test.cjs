@@ -63,22 +63,24 @@ test('evaluateSocialCookies ignores expired or unrelated cookies', () => {
   assert.equal(detected.length, 0);
 });
 
-test('checkPageChallenge detects TikTok / ByteDance SecSDK CAPTCHA elements', () => {
-  // Simulate DOM elements for TikTok Captcha
+/** Minimal fake page: elements match when their `marker` appears in the selector. */
+function fakePage({ title = '', text = '', hostname = 'www.tiktok.com', elements = [] }) {
+  const make = ({ marker, display = 'block', width = 300, height = 200 }) => ({
+    marker, style: { display, visibility: 'visible', opacity: '1' }, parentElement: null,
+    getBoundingClientRect: () => ({ width: display === 'none' ? 0 : width, height: display === 'none' ? 0 : height }),
+  });
+  const nodes = elements.map(make);
   global.document = {
-    title: 'TikTok - Make Your Day',
-    body: { innerText: 'Please verify to continue' },
-    querySelector: (selector) => {
-      if (selector.includes('#captcha_container')) {
-        return { id: 'captcha_container' };
-      }
-      return null;
-    },
+    title,
+    body: { innerText: text },
+    querySelectorAll: selector => nodes.filter(node => selector.includes(node.marker)),
   };
-  global.window = {
-    location: { hostname: 'www.tiktok.com' },
-  };
+  global.getComputedStyle = node => node.style;
+  global.window = { location: { hostname } };
+}
 
+test('checkPageChallenge detects TikTok / ByteDance SecSDK CAPTCHA elements', () => {
+  fakePage({ title: 'TikTok - Make Your Day', elements: [{ marker: '#captcha_container' }] });
   const res = checkPageChallenge();
   assert.equal(res.detected, true);
   assert.equal(res.provider, 'tiktok_captcha');
@@ -86,23 +88,18 @@ test('checkPageChallenge detects TikTok / ByteDance SecSDK CAPTCHA elements', ()
 });
 
 test('checkPageChallenge detects TikTok puzzle slider iframe and verification texts', () => {
-  global.document = {
-    title: 'TikTok Verification',
-    body: { innerText: 'Tarik penggeser untuk melengkapi teka-teki' },
-    querySelector: (selector) => {
-      if (selector.includes('security-captcha')) {
-        return { src: 'https://www.tiktok.com/falcon/security-captcha' };
-      }
-      return null;
-    },
-  };
-  global.window = {
-    location: { hostname: 'www.tiktok.com' },
-  };
+  fakePage({ title: 'TikTok Verification', elements: [{ marker: 'security-captcha' }] });
+  assert.equal(checkPageChallenge().provider, 'tiktok_captcha');
+  fakePage({ title: 'TikTok', text: 'Tarik penggeser untuk melengkapi teka-teki' });
+  assert.equal(checkPageChallenge().provider, 'tiktok_captcha', 'visible puzzle text alone is enough');
+});
 
-  const res = checkPageChallenge();
-  assert.equal(res.detected, true);
-  assert.equal(res.provider, 'tiktok_captcha');
+test('checkPageChallenge ignores a solved CAPTCHA container left hidden in the DOM', () => {
+  // Seen on TikTok after the human solved the puzzle: #tiktok-verify-ele stays with display:none.
+  fakePage({ title: 'TikTok', elements: [{ marker: '#tiktok-verify-ele', display: 'none' }] });
+  assert.equal(checkPageChallenge().detected, false);
+  fakePage({ title: 'TikTok', elements: [{ marker: '#tiktok-verify-ele', width: 0, height: 0 }] });
+  assert.equal(checkPageChallenge().detected, false, 'zero-size containers are not shown');
 });
 
 test('McpBridge profiles.getLogins returns recommendations and profiles list with social logins', async () => {
