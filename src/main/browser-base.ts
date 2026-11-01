@@ -282,6 +282,10 @@ export abstract class BrowserBase {
 
   setBounds(bounds: ViewBounds): void { this.bounds = bounds; this.layout(); }
 
+  /** Web pages are native views drawn above the app UI; hide them while a UI dialog is open. */
+  protected overlayOpen = false;
+  setOverlay(open: boolean): void { this.overlayOpen = open; this.layout(); }
+
   layout(): void {
     const [width = 0, height = 0] = this.window.getContentSize();
     const x = Math.min(this.bounds.x, width);
@@ -289,7 +293,7 @@ export abstract class BrowserBase {
     for (const [id, tab] of this.tabs) {
       if (!tab.view) continue;
       tab.view.setBounds({ x, y, width: Math.max(0, Math.min(this.bounds.width, width - x)), height: Math.max(0, Math.min(this.bounds.height, height - y)) });
-      tab.view.setVisible(id === this.activeTabId && tab.profileId === this.profiles.activeProfileId && !tab.state.error);
+      tab.view.setVisible(id === this.activeTabId && tab.profileId === this.profiles.activeProfileId && !tab.state.error && !this.overlayOpen);
     }
   }
 

@@ -107,6 +107,8 @@ export interface BrowserAPI {
   getState(): Promise<BrowserState>;
   command(command: BrowserCommand): Promise<CommandResult>;
   setBounds(bounds: ViewBounds): Promise<void>;
+  /** True while an app dialog is open, so the web page view does not cover it. */
+  setOverlay(open: boolean): Promise<void>;
   onState(listener: (state: BrowserState) => void): () => void;
   onFocusAddress(listener: () => void): () => void;
   onHumanIntervention(listener: (req: HumanInterventionRequest | null) => void): () => void;

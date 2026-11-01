@@ -89,6 +89,7 @@ ipcMain.handle('browser:command', async (event, value: unknown): Promise<Command
   } finally { if (ownsCommand) commandBusy = false; }
 });
 ipcMain.handle('browser:bounds', (event, value: unknown) => requireTrustedSender(event).setBounds(parseBounds(value)));
+ipcMain.handle('browser:overlay', (event, open: unknown) => requireTrustedSender(event).setOverlay(open === true));
 ipcMain.handle('browser:get-mcp-config', event => {
   requireTrustedSender(event);
   const mcpScriptPath = path.resolve(__dirname, '../mcp/index.js').replace(/\\/g, '/');

@@ -334,6 +334,20 @@ module.exports = async ({ app, url, call, raw, action, expectError, reset, test,
     assert.equal(await fresh.evaluate(() => localStorage.getItem('device')), null);
   });
 
+  await test('app dialogs are not covered by the web page view', async () => {
+    await reset();
+    const win = await app.firstWindow();
+    const pageVisible = () => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].contentView.children.some(v => v.getVisible()));
+    assert.equal(await pageVisible(), true, 'page view shows normally');
+    await win.click('#manage-profiles');
+    await win.waitForFunction(() => !document.getElementById('profiles-modal').hidden);
+    await win.waitForTimeout(300);
+    assert.equal(await pageVisible(), false, 'page view hidden while the dialog is open');
+    await win.click('#done-profiles-modal');
+    await win.waitForTimeout(300);
+    assert.equal(await pageVisible(), true, 'page view back after closing');
+  });
+
   await test('browser_scroll without a target scrolls the page instantly', async () => {
     const guest = await reset();
     await guest.evaluate(() => { document.body.style.minHeight = '5000px'; window.scrollTo(0, 0); });

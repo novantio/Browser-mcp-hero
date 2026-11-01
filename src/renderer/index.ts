@@ -36,6 +36,16 @@ setupDataWorkspace();
 setupMcpConfigModal();
 
 new ResizeObserver(reportBounds).observe(document.getElementById('browser-surface')!);
+
+// The web page is a native view drawn above this UI: hide it while any dialog is open.
+const dialogs = [...document.querySelectorAll<HTMLElement>('.modal-backdrop')];
+let overlayOpen = false;
+new MutationObserver(() => {
+  const open = dialogs.some(dialog => !dialog.hidden);
+  if (open === overlayOpen) return;
+  overlayOpen = open;
+  void window.browser.setOverlay(open).catch(() => {});
+}).observe(document.body, { subtree: true, attributes: true, attributeFilter: ['hidden'] });
 // Ctrl+Shift+L while the app UI has focus; the menu accelerator covers a focused web page.
 document.addEventListener('keydown', event => {
   if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === 'l') { event.preventDefault(); toggleMediaMode(); }
