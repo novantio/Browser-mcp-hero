@@ -242,6 +242,23 @@ module.exports = async ({ app, url, call, raw, action, expectError, reset, test,
     await expectError('browser_scroll', { text: 'teks yang tidak ada di halaman' }, 'ELEMENT_NOT_FOUND');
   });
 
+  await test('browser_scroll prefers the match inside a scroll panel over the same word outside it', async () => {
+    const guest = await reset();
+    // TikTok layout: a "Comments" tab button above a separately scrolling list.
+    await guest.evaluate(() => {
+      const tab = document.createElement('button');
+      tab.textContent = 'Comments';
+      const list = document.createElement('div');
+      list.id = 'tiktok-like-list';
+      list.style.cssText = 'height:120px;overflow-y:auto';
+      list.innerHTML = '<p>466 comments</p>' + Array.from({ length: 30 }, (_, i) => `<p>komentar ${i}</p>`).join('');
+      document.body.prepend(tab, list);
+    });
+    const result = await action('browser_scroll', { text: 'comments', amount: 200 });
+    assert.equal(result.target, 'element');
+    assert.equal(await guest.evaluate(() => document.getElementById('tiktok-like-list').scrollTop), 200);
+  });
+
   await test('browser_scroll without a target scrolls the page instantly', async () => {
     const guest = await reset();
     await guest.evaluate(() => { document.body.style.minHeight = '5000px'; window.scrollTo(0, 0); });

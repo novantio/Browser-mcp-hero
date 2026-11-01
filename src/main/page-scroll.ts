@@ -7,29 +7,34 @@ export function scrollPageArea(options: {
   elementId?: number; selector?: string; text?: string;
   direction?: 'up' | 'down' | 'top' | 'bottom'; amount?: number;
 }): { target: 'page' | 'element'; before: number; after: number; max: number; atStart: boolean; atEnd: boolean } | { error: string } {
+  const scrollable = (el: Element): boolean => {
+    if (el.scrollHeight <= el.clientHeight + 4) return false;
+    return /auto|scroll|overlay/.test(getComputedStyle(el).overflowY);
+  };
+  const containerOf = (el: Element | null): Element | null => {
+    let box = el;
+    while (box && box !== document.body && box !== document.documentElement && !scrollable(box)) box = box.parentElement;
+    return box && box !== document.body && box !== document.documentElement ? box : null;
+  };
+
   let start: Element | null = null;
   if (options.elementId !== undefined) start = document.querySelector(`[data-hero-id="${options.elementId}"]`);
   else if (options.selector) {
     try { start = document.querySelector(options.selector); } catch { return { error: 'INVALID_SELECTOR' }; }
   } else if (options.text) {
-    // Smallest visible element whose own text contains the phrase (e.g. "466 comments").
+    // Innermost visible elements containing the phrase. The same word often also sits
+    // outside the panel (TikTok's "Comments" tab above its scrolling list), so prefer a
+    // match that lives inside a scrollable container.
     const needle = options.text.trim().toLowerCase();
-    let best: Element | null = null;
-    for (const el of document.body ? document.body.querySelectorAll('*') : []) {
-      const text = ((el as HTMLElement).innerText || '').trim().toLowerCase();
-      if (!text.includes(needle) || !el.getClientRects().length) continue;
-      if (!best || best.contains(el)) best = el;
-    }
-    start = best;
+    // textContent, not innerText: innerText forces layout for every node on big pages.
+    const has = (el: Element) => (el.textContent || '').toLowerCase().includes(needle);
+    const matches = [...(document.body ? document.body.querySelectorAll('*') : [])]
+      .filter(el => has(el) && el.getClientRects().length > 0 && ![...el.children].some(has));
+    start = matches.find(el => containerOf(el)) ?? matches[0] ?? null;
   }
   if ((options.elementId !== undefined || options.selector || options.text) && !start) return { error: 'ELEMENT_NOT_FOUND' };
 
-  const scrollable = (el: Element): boolean => {
-    if (el.scrollHeight <= el.clientHeight + 4) return false;
-    return /auto|scroll|overlay/.test(getComputedStyle(el).overflowY);
-  };
-  let box: Element | null = start;
-  while (box && box !== document.body && box !== document.documentElement && !scrollable(box)) box = box.parentElement;
+  const box: Element | null = containerOf(start);
   const isPage = !box || box === document.body || box === document.documentElement;
   const area = (isPage ? (document.scrollingElement || document.documentElement) : box) as Element;
 
