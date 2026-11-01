@@ -1,3 +1,4 @@
+import { execWithTimeout } from '../page-exec';
 import type { WebContents } from 'electron';
 import type { ExtractionSpec, CopilotSynthesis, Json } from '../../shared/data-contracts';
 import type { NetworkIntelligence } from './network-intelligence';
@@ -37,7 +38,7 @@ export class ScraperCopilot {
     }
 
     // 2. Cek repeating DOM card selector
-    const bestRowSelector = await contents.executeJavaScript(`
+    const bestRowSelector = await execWithTimeout(contents, `
       (() => {
         const commonSelectors = [
           'article', '[role="article"]', '[data-e2e*="item"]', '[data-testid*="item"]',

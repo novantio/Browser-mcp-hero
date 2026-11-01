@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import type { WebContents } from 'electron';
 import type { NetworkRecord, NetworkRecipe, Json } from '../../shared/data-contracts';
+import { redactText } from '../../shared/redaction';
+import { RpcError } from '../../shared/rpc-error';
 
 export class NetworkIntelligence {
   private readonly records: NetworkRecord[] = [];
@@ -98,6 +100,15 @@ export class NetworkIntelligence {
             }
           } else if (method === 'Network.loadingFailed') {
             const reqId = String(params.requestId);
+            const pending = this.pendingRequests.get(reqId);
+            if (pending) {
+              const durationMs = Date.now() - (pending.timestamp || Date.now());
+              this.finalizePending({
+                ...pending,
+                status: 0,
+                mimeType: params.errorText || 'failed',
+              }, reqId, durationMs);
+            }
             this.pendingRequests.delete(reqId);
           }
         } catch {}
@@ -220,5 +231,103 @@ export class NetworkIntelligence {
       }
     }
     return results;
+  }
+
+  getInflightCount(): number {
+    let count = 0;
+    for (const req of this.pendingRequests.values()) {
+      const url = req.url || '';
+      if (!url.startsWith('data:') && !url.startsWith('devtools:')) {
+        count++;
+      }
+    }
+    return count;
+  }
+
+  getInflightRequests(): Array<{ id: string; url: string; method: string; durationMs: number }> {
+    const now = Date.now();
+    const result: Array<{ id: string; url: string; method: string; durationMs: number }> = [];
+    for (const req of this.pendingRequests.values()) {
+      const url = req.url || '';
+      if (!url.startsWith('data:') && !url.startsWith('devtools:')) {
+        result.push({
+          id: req.id || req.requestId || '',
+          url: redactText(url),
+          method: req.method || 'GET',
+          durationMs: now - (req.timestamp || now),
+        });
+      }
+    }
+    return result;
+  }
+
+  getFailedRequests(limit = 50): Array<{ id: string; url: string; method: string; status: number; mimeType: string; durationMs: number }> {
+    const failed = this.records.filter(r => r.status === 0 || r.status >= 400);
+    return failed.slice(0, Math.min(limit, 200)).map(r => ({
+      id: r.id,
+      url: redactText(r.url),
+      method: r.method,
+      status: r.status,
+      mimeType: r.mimeType,
+      durationMs: r.durationMs,
+    }));
+  }
+
+  getActivity(options: { filter?: string; onlyFailed?: boolean; limit?: number } = {}) {
+    const inflight = this.getInflightRequests();
+    const failed = this.getFailedRequests(options.limit ?? 50);
+    let recent = this.records;
+    if (options.filter) {
+      const f = options.filter.toLowerCase().trim();
+      recent = recent.filter(r => r.url.toLowerCase().includes(f) || r.method.toLowerCase().includes(f));
+    }
+    if (options.onlyFailed) {
+      recent = recent.filter(r => r.status === 0 || r.status >= 400);
+    }
+    const limit = Math.min(Math.max(options.limit ?? 50, 1), 200);
+    const recentRequests = recent.slice(0, limit).map(r => ({
+      id: r.id,
+      url: redactText(r.url),
+      method: r.method,
+      status: r.status,
+      mimeType: r.mimeType,
+      durationMs: r.durationMs,
+    }));
+
+    return {
+      inflightCount: inflight.length,
+      inflightRequests: inflight,
+      failedRequests: failed,
+      recentRequests,
+      summary: {
+        totalRecorded: this.records.length,
+        inflightCount: inflight.length,
+        failedCount: this.records.filter(r => r.status === 0 || r.status >= 400).length,
+      },
+    };
+  }
+
+  async waitForIdle(options: { idleTimeMs?: number; timeoutMs?: number; maxInflight?: number } = {}, signal?: AbortSignal): Promise<boolean> {
+    const idleTime = Math.min(Math.max(options.idleTimeMs ?? 500, 100), 10000);
+    const timeout = Math.min(Math.max(options.timeoutMs ?? 10000, 500), 60000);
+    const maxInflight = options.maxInflight ?? 0;
+    const start = Date.now();
+    let idleStart: number | null = null;
+
+    while (Date.now() - start < timeout) {
+      signal?.throwIfAborted();
+      const currentInflight = this.getInflightCount();
+      if (currentInflight <= maxInflight) {
+        if (idleStart === null) {
+          idleStart = Date.now();
+        } else if (Date.now() - idleStart >= idleTime) {
+          return true;
+        }
+      } else {
+        idleStart = null;
+      }
+      await new Promise(r => setTimeout(r, 50));
+    }
+    throw new RpcError('TIMEOUT', 'Batas waktu menunggu network idle terlampaui.');
   }
 }

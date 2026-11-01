@@ -6,6 +6,9 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'">
   <title>Hero Browser — Profil persisten</title>
   <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="data.css">
+  <link rel="stylesheet" href="modal.css">
+  <link rel="stylesheet" href="profiles.css">
 </head>
 <body>
   <header class="browser-chrome">
@@ -14,6 +17,7 @@
       <div id="tabs" class="tabs" role="tablist" aria-label="Tab browser"></div>
       <button id="new-tab" class="icon-button add-tab" aria-label="Buka tab baru" title="Tab baru (Ctrl+T)">+</button>
       <label class="profile-picker"><span class="status-dot"></span><span>Profil</span><select id="profile-select" aria-label="Profil aktif"></select></label>
+      <button id="manage-profiles" class="panel-button" type="button" aria-haspopup="dialog" title="Kelola profil: duplikat beserta login, ganti nama, hapus (Ctrl+Shift+P)"><span aria-hidden="true">⚙</span> Kelola</button>
     </div>
     <div class="navigation-row">
       <div class="navigation-buttons">
@@ -26,7 +30,8 @@
         <input id="address" type="text" spellcheck="false" autocomplete="off" aria-label="Alamat atau pencarian" placeholder="Cari di web atau masukkan alamat">
         <kbd>Ctrl L</kbd>
       </form>
-      <button id="toggle-panel" class="panel-button" aria-expanded="true" aria-controls="side-panel" title="Tampilkan atau sembunyikan panel sesi"><span aria-hidden="true">◫</span> Ruang kerja</button>
+      <button id="toggle-panel" class="panel-button" aria-expanded="true" aria-controls="side-panel" title="Sembunyikan panel samping supaya halaman penuh (Ctrl+Shift+B)"><span aria-hidden="true">◧</span> <span id="toggle-panel-label">Sembunyikan panel</span></button>
+      <button id="btn-mcp-menu" class="panel-button mcp-menu-btn" title="Pengaturan &amp; Salin Konfigurasi Integrasi MCP Server" aria-haspopup="dialog"><span aria-hidden="true">⚡</span> Integrasi MCP</button>
     </div>
     <div id="intervention-banner" class="intervention-banner" hidden>
       <div class="intervention-content">
@@ -62,6 +67,16 @@
         </div>
         <div class="welcome-footer"><span><span class="status-dot"></span> Browser siap digunakan</span><span>Manusia yang memegang kendali.</span></div>
       </section>
+      <section id="cert-warning" class="page-error cert-warning" hidden>
+        <span class="error-symbol" aria-hidden="true">⚠</span>
+        <p class="eyebrow">KONEKSI TIDAK PRIVAT</p>
+        <h1>Sertifikat situs ini tidak valid.</h1>
+        <p>Koneksi ke <strong id="cert-host"></strong> tidak dapat diverifikasi, mirip pesan “Your connection is not private” di Chrome. Lanjutkan hanya jika Anda memercayai jaringan ini (mis. server internal).</p>
+        <div class="cert-actions">
+          <button id="cert-safe" class="ghost-button">Kembali ke aman</button>
+          <button id="cert-proceed" class="primary-button">Lanjutkan (tidak aman)</button>
+        </div>
+      </section>
       <section id="page-error" class="page-error" hidden>
         <span class="error-symbol" aria-hidden="true">↯</span>
         <p class="eyebrow">KONEKSI TERHENTI</p>
@@ -73,7 +88,7 @@
     </main>
 
     <aside id="side-panel" class="side-panel">
-      <div class="panel-heading"><span>Ruang kerja</span><span class="panel-tag">LOKAL</span></div>
+      <div class="panel-heading"><span>Ruang kerja</span><span class="panel-heading-actions"><span class="panel-tag">LOKAL</span><button id="collapse-panel" class="panel-collapse" type="button" aria-label="Sembunyikan panel samping" title="Sembunyikan panel (Ctrl+Shift+B)">»</button></span></div>
       <div class="panel-mode-selector">
         <button id="view-tab-profiles" class="panel-mode-tab active" type="button">Profil & Sesi</button>
         <button id="view-tab-data" class="panel-mode-tab" type="button">Data & AI Runtime</button>
@@ -88,23 +103,33 @@
         <dl class="session-facts"><div><dt>Tab di profil ini</dt><dd id="tab-count">1</dd></div><div><dt>Kontrol</dt><dd id="profile-control">Manual</dd></div><div><dt>Penyimpanan</dt><dd class="persistent-label">Permanen</dd></div></dl>
 
         <section class="login-tools" aria-label="Login dan berbagi sesi">
-          <div class="login-actions"><button id="open-google"><span class="google-mark" aria-hidden="true">G</span> Gmail / Google</button><button id="toggle-share" aria-expanded="false" aria-controls="share-options">Share sesi</button></div>
+          <div class="login-actions"><button id="open-google"><span class="google-mark" aria-hidden="true">G</span> Gmail / Google</button><button id="toggle-share" aria-expanded="false" aria-controls="share-options" title="Profil lain memakai sesi login yang sama secara langsung (logout ikut berlaku)">Pakai login bersama…</button></div>
+          <button id="open-manage-profiles" class="action-btn-full" type="button" title="Duplikat profil beserta login, ganti nama, atau hapus">⚙ Kelola profil (duplikat, ganti nama, hapus)</button>
           <p id="sharing-status">Sesi pribadi</p>
           <div id="share-options" hidden>
-            <div class="share-heading"><span>PROFIL TUJUAN</span><button id="share-all" type="button">Pilih semua</button></div>
+            <div class="share-heading"><span>PROFIL YANG IKUT MEMAKAI LOGIN INI</span><button id="share-all" type="button">Pilih semua</button></div>
             <div id="share-targets"></div>
-            <p class="share-note">Semua login situs akan digunakan bersama, termasuk perubahan logout. Sesi pribadi tujuan tetap disimpan.</p>
-            <button id="apply-share" type="button">Gunakan sesi bersama</button>
+            <p class="share-note">Semua login situs dipakai bersama secara langsung; logout di satu profil berlaku untuk semuanya. Butuh salinan yang terpisah? Pakai <b>Kelola profil → Duplikat</b>.</p>
+            <button id="apply-share" type="button">Pakai login bersama</button>
           </div>
-          <button id="stop-sharing" hidden>Hentikan berbagi</button>
+          <button id="stop-sharing" hidden>Berhenti memakai login bersama</button>
         </section>
         <div class="profile-tools">
-          <div class="profile-actions"><button id="save-session">Simpan sekarang</button><button id="delete-profile" aria-label="Hapus profil" title="Hapus profil beserta data situs">Hapus profil</button></div>
+          <div class="profile-actions"><button id="save-session" title="Data situs tersimpan otomatis; tombol ini memaksa simpan ke disk sekarang">Simpan data sekarang</button><button id="delete-profile" aria-label="Hapus profil" title="Hapus profil beserta data situs">Hapus profil</button></div>
           <p id="storage-feedback" role="status">Data situs disimpan di perangkat.</p>
           <form id="profile-form"><label for="profile-name">PROFIL BARU</label><div><input id="profile-name" aria-label="Nama profil baru" placeholder="Misalnya: Akun kerja" maxlength="40" required autocomplete="off"><button id="create-profile" type="submit" aria-label="Buat profil" title="Buat profil">+</button></div></form>
           <p id="profile-feedback" role="status" hidden></p>
         </div>
         <div class="section-divider"></div>
+        <section class="engine-update-panel" aria-labelledby="engine-update-title">
+          <div class="section-label" id="engine-update-title">ENGINE BROWSER</div>
+          <p id="engine-versions">Membaca versi engine…</p>
+          <label class="engine-auto-label"><input type="checkbox" id="engine-auto"> Unduh pembaruan stabil otomatis</label>
+          <p id="engine-update-message" role="status">Pembaruan dipakai pada peluncuran berikutnya.</p>
+          <progress id="engine-update-progress" max="100" hidden aria-label="Progres unduhan engine"></progress>
+          <button id="engine-check" class="action-btn-full" type="button">Periksa &amp; unduh pembaruan</button>
+        </section>
+
         <div class="section-label">AI BROWSER RUNTIME <span id="mcp-status-badge" class="runtime-badge">MENGHUBUNGKAN</span></div>
         <div class="ai-runtime-panel">
           <div class="runtime-status-bar">
@@ -114,6 +139,7 @@
               <span class="runtime-sub" id="runtime-endpoint">127.0.0.1 (Local RPC)</span>
             </div>
           </div>
+          <button id="btn-open-mcp-modal" class="action-btn-full mcp-action-btn" type="button"><span aria-hidden="true">📋</span> Salin Konfigurasi MCP</button>
           <div id="task-list" class="task-list" aria-live="polite"></div>
           <div class="activity-section">
             <div class="activity-header">
@@ -248,6 +274,82 @@
   </div>
   <footer class="status-bar"><span id="page-status" role="status">Tab baru</span><span>HERO BROWSER <span class="footer-separator">/</span> HUMAN FIRST</span></footer>
   <div id="toast" role="alert" hidden></div>
+
+  <!-- Modal Dialog: Integrasi MCP & AI Agent -->
+  <div id="mcp-modal" class="modal-backdrop" hidden>
+    <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="mcp-modal-title">
+      <div class="modal-header">
+        <div class="modal-title-wrap">
+          <span class="modal-icon" aria-hidden="true">⚡</span>
+          <div>
+            <h2 id="mcp-modal-title">Integrasi MCP &amp; AI Agent</h2>
+            <p class="modal-subtitle">Hubungkan Hero Browser ke Claude Desktop, Cursor, Antigravity, Cline, atau Agent AI Anda.</p>
+          </div>
+        </div>
+        <button id="close-mcp-modal" class="modal-close-button" aria-label="Tutup dialog" title="Tutup (Esc)">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="mcp-client-tabs">
+          <button id="tab-client-claude" class="mcp-client-tab active" type="button">Claude Desktop / Cursor</button>
+          <button id="tab-client-antigravity" class="mcp-client-tab" type="button">Antigravity / Gemini</button>
+          <button id="tab-client-cli" class="mcp-client-tab" type="button">Command CLI</button>
+        </div>
+
+        <div class="mcp-code-container">
+          <div class="code-header">
+            <span id="mcp-config-filename" class="code-filename">claude_desktop_config.json</span>
+            <button id="btn-copy-mcp-config" class="copy-code-btn" type="button" title="Salin ke clipboard">
+              <span id="copy-icon" aria-hidden="true">📋</span> <span id="copy-text">Salin JSON</span>
+            </button>
+          </div>
+          <pre><code id="mcp-code-display" class="code-block"></code></pre>
+        </div>
+
+        <div class="mcp-info-box">
+          <div class="info-item">
+            <strong>Lokasi File:</strong>
+            <span id="mcp-config-location">%APPDATA%\Claude\claude_desktop_config.json</span>
+          </div>
+          <div class="info-item">
+            <strong>Total Tool:</strong>
+            <span>112 tool (32 aktif secara default di preset core; agent bisa membuka semuanya dengan browser_set_tool_preset)</span>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <span class="modal-footer-hint">💡 Tip: Setelah menyimpan konfigurasi di aplikasi AI pilihan Anda, restart aplikasi tersebut untuk mulai menggunakan Hero Browser.</span>
+        <button id="btn-done-mcp-modal" class="primary-button" type="button">Selesai</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="profiles-modal" class="modal-backdrop" hidden>
+    <div class="modal-dialog profiles-dialog" role="dialog" aria-modal="true" aria-labelledby="profiles-modal-title">
+      <div class="modal-header">
+        <div class="modal-title-wrap">
+          <span class="modal-icon" aria-hidden="true">◈</span>
+          <div>
+            <h2 id="profiles-modal-title">Kelola profil</h2>
+            <p class="modal-subtitle">Setiap profil punya login, cookie, dan data situs sendiri. Duplikat untuk membuat profil baru yang membawa login profil asal.</p>
+          </div>
+        </div>
+        <button id="close-profiles-modal" class="modal-close-button" aria-label="Tutup dialog" title="Tutup (Esc)">✕</button>
+      </div>
+      <div class="modal-body">
+        <ul id="profiles-list" class="profiles-list" aria-label="Daftar profil"></ul>
+        <form id="profiles-create" class="profiles-create">
+          <label for="profiles-create-name">Profil kosong baru</label>
+          <div><input id="profiles-create-name" placeholder="Misalnya: Akun kerja" maxlength="40" required autocomplete="off"><button type="submit" class="primary-button">Buat</button></div>
+        </form>
+        <p id="profiles-feedback" class="profiles-feedback" role="status" hidden></p>
+      </div>
+      <div class="modal-footer">
+        <span class="modal-footer-hint">💡 Duplikat menyalin cookie login (Google, TikTok, dll.) ke profil baru yang terpisah. Karena akunnya sama, logout di satu profil bisa ikut mengakhiri login di profil lainnya.</span>
+        <button id="done-profiles-modal" class="primary-button" type="button">Selesai</button>
+      </div>
+    </div>
+  </div>
+
   <script type="module" src="index.js"></script>
 </body>
 </html>

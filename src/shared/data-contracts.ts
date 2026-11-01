@@ -74,7 +74,7 @@ export const multiStrategySpec = z.object({
 }).strict();
 export const jobSchema=jobInput.extend({id,status:z.enum(['idle','running','paused','waiting_human','completed','cancelled','failed']),createdAt:z.number(),nextRunAt:z.number().nullable(),runId:id.nullable(),taskId:id.nullable(),cursor:z.number(),step:z.number(),records:z.number(),error:z.string().nullable()}).strict();
 const jsonObject=z.record(z.string(),z.any());
-const page=z.object({items:z.array(z.json()),total:z.number(),nextOffset:z.number().nullable()}).strict();
+const page=z.object({items:z.array(jsonObject),total:z.number(),nextOffset:z.number().nullable()}).strict();
 const define=(name:string,method:string,description:string,input:z.ZodObject,output:z.ZodType):ToolContract=>({name,method,description,input,output});
 const obj=(shape:Record<string,z.ZodType>)=>z.object(shape).strict();
 const jobId=obj({jobId:id});
@@ -112,7 +112,7 @@ export const dataContracts:ToolContract[]=[
   define('search_semantic','data.semantic','Cosine similarity dari embedding model yang sama.',obj({model:text,vector:z.array(z.number().finite()).min(2).max(4096),limit:z.number().int().min(1).max(100).default(20)}),z.array(jsonObject)),
   define('network_get_requests','data.networkRequests','Daftar request dan response API backend tersadap.',obj({taskId:id,filter:z.string().max(200).default(''),limit:z.number().int().min(1).max(200).default(50)}),z.array(jsonObject)),
   define('network_get_recipe','data.networkRecipe','Ekstrak resep network dari pertukaran API terakhir.',obj({taskId:id,requestId:z.string().max(100).optional()}),jsonObject),
-  define('network_replay_recipe','data.networkReplay','Coba panggil ulang resep network untuk reproduktifitas.',obj({recipeId:id,params:z.record(z.string(),z.json()).optional()}),jsonObject),
+  define('network_replay_recipe','data.networkReplay','Coba panggil ulang resep network untuk reproduktifitas.',obj({recipeId:id,params:jsonObject.optional()}),jsonObject),
   define('data_extract_multistrategy','data.extractMultiStrategy','Ekstraksi adaptif bertingkat (Network -> Embedded JSON -> DOM -> ARIA).',multiStrategySpec,z.array(jsonObject)),
   define('browser_collect','data.collect','Infinite scroll engine dengan in-flight deduplication.',obj({taskId:id,schema:extractionSchema,maxItems:z.number().int().min(1).max(2000).default(100),maxScrolls:z.number().int().min(1).max(500).default(20),timeoutMs:z.number().int().min(1000).max(300000).default(60000),terminationCondition:z.enum(['no_new_items','max_items','end_of_feed']).default('no_new_items')}),jsonObject),
   define('scraper_heal_selector','data.healSelector','Sembuhkan selector yang rusak berdasarkan kemiripan semantik dan ARIA.',obj({taskId:id,selector:text,previousTag:text.optional(),contextSnippet:text.optional()}),jsonObject),

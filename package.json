@@ -7,20 +7,24 @@
   "scripts": {
     "build": "node scripts/build.cjs",
     "start": "node scripts/start.cjs",
+    "restart": "node scripts/restart.cjs",
     "mcp": "node dist/mcp/index.js",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.renderer.json --noEmit",
     "test": "node scripts/build.cjs && node --test tests/*.test.cjs",
-    "test:e2e": "node scripts/build.cjs && node tests/electron.cjs && node tests/persistence.cjs && node tests/sharing.cjs && node tests/automation.cjs"
+    "test:e2e": "node scripts/build.cjs && node tests/electron.cjs && node tests/persistence.cjs && node tests/sharing.cjs && node tests/automation.cjs && node tests/engine-update.cjs"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "@types/yauzl": "3.4.0",
     "electron": "44.2.0",
     "playwright": "1.63.0",
     "typescript": "7.0.2"
   },
   "dependencies": {
+    "@electron/get": "5.1.0",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "hyparquet-writer": "0.16.9",
+    "yauzl": "3.4.0",
     "zod": "^4.5.4"
   }
 }

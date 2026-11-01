@@ -170,7 +170,7 @@ render();
     await kept.getByText('Data uji tersimpan', { exact: true }).waitFor();
     console.log('PASS confirmed deletion clears only the selected profile');
 
-    await window.getByRole('button', { name: 'Simpan sekarang', exact: true }).click();
+    await window.locator('#save-session').click();
     await window.getByText('Tersimpan di perangkat', { exact: true }).waitFor();
     assert.deepEqual(errors, []);
     await select('default');

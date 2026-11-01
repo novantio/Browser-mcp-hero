@@ -1,7 +1,10 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, clipboard } from 'electron';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { BrowserManager } from './browser-manager';
+import { EngineUpdater } from './engine-updater';
+import { engineDirectory } from './engine-selection';
+import { latestStable, prepareEngine } from './engine-download';
 import { ProfileManager } from './profile-manager';
 import { SessionManager } from './session-manager';
 import { TaskManager } from './task-manager';
@@ -12,7 +15,11 @@ import { DataAnalysis } from './data/analysis';
 import { JobRunner } from './data/job-runner';
 import { InteractionRecorder } from './data/recorder';
 import { parseBounds, parseCommand } from '../shared/navigation';
-import type { BrowserCommand, CommandResult } from '../shared/types';
+import type { CommandResult } from '../shared/types';
+import { setupApplicationMenu } from './app-menu';
+import { handleCommand } from './ui-commands';
+import { registerDataIpc } from './data-ipc';
+import { restartApp } from './app-restart';
 
 // Separate the persistent release from the still-running Milestone 1 shell.
 // An explicit --user-data-dir is respected for isolated test runs.
@@ -28,16 +35,20 @@ let sessions: SessionManager;
 let tasks: TaskManager;
 let auditLogger: AuditLogger;
 let bridge: McpBridge | null = null;
+let bridgePort: number | null = null;
 let store: DataStore;
 let analysis: DataAnalysis;
 let jobRunner: JobRunner;
 let recorder: InteractionRecorder;
+let engineUpdater: EngineUpdater;
 let commandBusy = false;
 let mcpStatus: "starting" | "ready" | "failed" = "starting";
+
 const runtimeState = (browser: BrowserManager) => ({
   ...browser.snapshot(),
   tasks: tasks.listTasks(),
   mcpStatus,
+  engineUpdate: engineUpdater?.snapshot(),
   dataOverview: jobRunner ? jobRunner.overview() : undefined,
 });
 function publishRuntime(): void {
@@ -55,58 +66,12 @@ function requireTrustedSender(event: Electron.IpcMainInvokeEvent): BrowserManage
   return manager;
 }
 
-async function handleCommand(browser: BrowserManager, command: BrowserCommand): Promise<void> {
-
-  if (command.action === 'open-google') {
-    browser.newTab();
-    browser.execute({ action: 'navigate', input: 'https://mail.google.com/' });
-    return;
-  }
-  if (command.action === 'share-session') {
-    const plan = profiles.planShareSession(profiles.activeProfileId, command.targetIds);
-    const source = profiles.requireProfile(plan.sourceId);
-    const names = plan.targetIds.map(id => profiles.requireProfile(id).name).join(', ');
-    const result = await dialog.showMessageBox(mainWindow!, {
-      type: 'question', title: 'Share sesi', message: 'Gunakan sesi “' + source.name + '” bersama?',
-      detail: 'Profil tujuan: ' + names + '.\n\nSemua login situs dan perubahan logout akan digunakan bersama. Tab tujuan ditutup; simpan pekerjaan terlebih dahulu. Sesi pribadi tujuan tetap tersimpan dan bisa dipakai kembali setelah berbagi dihentikan.',
-      buttons: ['Batal', 'Share sesi'], defaultId: 0, cancelId: 0, noLink: true,
-    });
-    if (result.response === 1) await browser.changeSharedSession(() => profiles.shareSession(plan.sourceId, plan.targetIds));
-    return;
-  }
-  if (command.action === 'stop-sharing') {
-    const changed = profiles.planStopSharing(profiles.activeProfileId);
-    if (!changed.length) throw new Error('Profil ini belum berbagi sesi.');
-    const names = changed.map(id => profiles.requireProfile(id).name).join(', ');
-    const result = await dialog.showMessageBox(mainWindow!, {
-      type: 'question', title: 'Hentikan berbagi', message: 'Kembali memakai sesi pribadi?',
-      detail: 'Profil: ' + names + '. Tab profil ini akan ditutup. Sesi pribadi sebelumnya akan digunakan kembali; login dari sesi bersama tidak disalin.',
-      buttons: ['Batal', 'Hentikan berbagi'], defaultId: 0, cancelId: 0, noLink: true,
-    });
-    if (result.response === 1) await browser.changeSharedSession(() => profiles.stopSharing(profiles.activeProfileId));
-    return;
-  }
-
-  if (command.action === 'resume-human-intervention') {
-    tasks.resumeHumanIntervention(command.taskId);
-    return;
-  }
-  if (command.action === 'create-profile') { browser.createProfile(command.name); return; }
-  if (command.action === 'switch-profile') { browser.switchProfile(command.profileId); return; }
-  if (command.action === 'save-session') { await sessions.flush(); return; }
-  if (command.action === 'delete-profile') {
-    profiles.assertDeletable(command.profileId);
-    const profile = profiles.requireProfile(command.profileId);
-    const result = await dialog.showMessageBox(mainWindow!, {
-      type: 'warning', title: 'Hapus profil', message: 'Hapus profil “' + profile.name + '”?',
-      detail: profile.sharedWith ? 'Tab dan sesi pribadi profil ini akan dihapus. Sesi bersama milik profil sumber tetap tersedia.' : 'Semua tab, login, cookie, dan data situs di profil ini akan dihapus dari perangkat. Profil lain tetap tersedia.',
-      buttons: ['Batal', 'Hapus profil'], defaultId: 0, cancelId: 0, noLink: true,
-    });
-    if (result.response === 1) await browser.deleteProfile(command.profileId);
-    return;
-  }
-  browser.execute(command);
-}
+ipcMain.handle('browser:engine-command', (event, action: unknown) => {
+  requireTrustedSender(event);
+  if (!engineUpdater || !['check', 'enable', 'disable'].includes(String(action))) throw new Error('Perintah pembaruan tidak valid.');
+  if (action === 'check') { void engineUpdater.check(); return engineUpdater.snapshot(); }
+  return engineUpdater.setEnabled(action === 'enable');
+});
 
 ipcMain.handle('browser:state', event => runtimeState(requireTrustedSender(event)));
 ipcMain.handle('browser:command', async (event, value: unknown): Promise<CommandResult> => {
@@ -117,71 +82,64 @@ ipcMain.handle('browser:command', async (event, value: unknown): Promise<Command
     if (commandBusy) throw new Error('Tunggu hingga perubahan profil selesai.');
     commandBusy = true;
     ownsCommand = true;
-    await handleCommand(browser, command);
+    await handleCommand({ window: mainWindow!, profiles, sessions, tasks }, browser, command);
     return { ok: true };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : 'Perintah gagal.' };
   } finally { if (ownsCommand) commandBusy = false; }
 });
 ipcMain.handle('browser:bounds', (event, value: unknown) => requireTrustedSender(event).setBounds(parseBounds(value)));
-
-ipcMain.handle('data:overview', event => {
+ipcMain.handle('browser:get-mcp-config', event => {
   requireTrustedSender(event);
-  return jobRunner?.overview() ?? {};
+  const mcpScriptPath = path.resolve(__dirname, '../mcp/index.js').replace(/\\/g, '/');
+  const projectDir = path.resolve(__dirname, '../..').replace(/\\/g, '/');
+  return {
+    mcpScriptPath,
+    projectDir,
+    claudeDesktopConfig: {
+      mcpServers: {
+        'hero-browser': {
+          command: 'node',
+          args: [mcpScriptPath],
+        },
+      },
+    },
+    geminiAntigravityConfig: {
+      'hero-browser': {
+        command: 'node',
+        args: [mcpScriptPath],
+      },
+    },
+    cliCommand: `node "${mcpScriptPath}"`,
+    bridgePort: bridgePort ?? undefined,
+  };
 });
-ipcMain.handle('data:jobs', event => {
+ipcMain.handle('browser:copy-clipboard', (event, text: unknown) => {
   requireTrustedSender(event);
-  return jobRunner?.listJobs() ?? [];
-});
-ipcMain.handle('data:datasets', event => {
-  requireTrustedSender(event);
-  return analysis ? store.list('dataset').map((d: any) => analysis.summary(d)) : [];
-});
-ipcMain.handle('data:recordings', event => {
-  requireTrustedSender(event);
-  return recorder?.list() ?? [];
-});
-ipcMain.handle('data:command', async (event, value: unknown) => {
-  requireTrustedSender(event);
-  if (!value || typeof value !== 'object') return { ok: false, error: 'Perintah tidak valid.' };
-  const { action, payload } = value as { action: string; payload: any };
-  try {
-    switch (action) {
-      case 'job-run': return { ok: true, result: await jobRunner.runJob(String(payload.jobId)) };
-      case 'job-pause': return { ok: true, result: jobRunner.pauseJob(String(payload.jobId)) };
-      case 'job-resume': return { ok: true, result: await jobRunner.resumeJob(String(payload.jobId)) };
-      case 'job-cancel': return { ok: true, result: jobRunner.cancelJob(String(payload.jobId)) };
-      case 'job-create': return { ok: true, result: jobRunner.createJob(payload) };
-      case 'record-start': return { ok: true, result: await recorder.start(String(payload?.name || 'Sesi')) };
-      case 'record-stop': return { ok: true, result: await recorder.stop() };
-      case 'record-convert': return { ok: true, result: recorder.convert(String(payload.recordingId), payload.schema, String(payload.name), (payload.intervalMinutes as number | null) ?? null) };
-      case 'dataset-build': return { ok: true, result: analysis.build(payload) };
-      case 'dataset-export': return { ok: true, result: await analysis.export(String(payload.datasetId), payload.format) };
-      case 'search': return { ok: true, result: store.records(payload) };
-      case 'network-requests': return { ok: true, result: jobRunner.network.getRequests(payload?.filter, payload?.limit) };
-      case 'review-list': return { ok: true, result: jobRunner.reviewQueue.listItems(payload?.status, payload?.limit) };
-      case 'review-resolve': return { ok: true, result: jobRunner.reviewQueue.resolveItem(String(payload.reviewId), payload.resolution, payload.editedData) };
-      case 'frontier-push': return { ok: true, result: jobRunner.frontier.push(payload.urls, payload.depth, payload.priority) };
-      case 'frontier-stats': return { ok: true, result: jobRunner.frontier.getStats() };
-      case 'copilot-synthesize': return { ok: true, result: await jobRunner.copilot.synthesize(manager!.getActiveWebContents(), String(payload.targetUrl), payload.goalContract) };
-      case 'lineage': return { ok: true, result: store.getLineage(String(payload.recordId)) };
-      default: return { ok: false, error: 'Aksi data tidak dikenal.' };
-    }
-  } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : 'Operasi data gagal.' };
+  if (typeof text === 'string') {
+    clipboard.writeText(text);
+    return true;
   }
+  return false;
+});
+
+registerDataIpc({
+  trust: requireTrustedSender, jobRunner: () => jobRunner, analysis: () => analysis, store: () => store, recorder: () => recorder,
 });
 
 async function createWindow(): Promise<void> {
+  const isHeadless = app.commandLine.hasSwitch('headless') || process.argv.includes('--headless') || process.argv.includes('--quiet');
   const window = new BrowserWindow({
     width: 1440, height: 940, minWidth: 900, minHeight: 620,
     title: 'Hero Browser — Profil persisten', backgroundColor: '#111a2b', show: false, autoHideMenuBar: true,
+    skipTaskbar: isHeadless,
     webPreferences: { preload: path.join(__dirname, '../preload/index.js'),
-      sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true },
+      sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true, backgroundThrottling: false },
   });
+  (window as any).isHeadlessMode = isHeadless;
   mainWindow = window;
   const browser = new BrowserManager(window, state => {
-    if (!window.isDestroyed()) window.webContents.send('browser:state-changed', { ...state, tasks: tasks.listTasks(), mcpStatus });
+    if (!window.isDestroyed()) window.webContents.send('browser:state-changed', { ...state, tasks: tasks.listTasks(), mcpStatus, engineUpdate: engineUpdater?.snapshot() });
   }, profiles, sessions);
   manager = browser;
   tasks.setInterventionListener(req => {
@@ -220,6 +178,7 @@ async function createWindow(): Promise<void> {
     });
   });
   window.on('closed', () => {
+    engineUpdater?.stop();
     browser.dispose();
     bridge?.stop();
     bridge = null;
@@ -230,15 +189,18 @@ async function createWindow(): Promise<void> {
     mainWindow = null;
   });
   window.once('ready-to-show', () => {
-    window.show();
-    window.focus();
+    if (!isHeadless) {
+      window.show();
+      window.focus();
+    }
   });
   await window.loadFile(rendererPath);
-  if (!window.isVisible()) {
+  if (!isHeadless && !window.isVisible()) {
     window.show();
     window.focus();
   }
 }
+
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
@@ -249,7 +211,15 @@ if (!app.requestSingleInstanceLock()) {
     mainWindow?.focus();
   });
   void app.whenReady().then(async () => {
-    Menu.setApplicationMenu(null);
+    const engineRoot = engineDirectory();
+    engineUpdater = new EngineUpdater({
+      directory: engineRoot, currentElectron: process.versions.electron, currentChromium: process.versions.chrome,
+      supported: !app.isPackaged && process.platform === 'win32' && ['x64', 'arm64'].includes(process.arch),
+      disabledByEnvironment: process.env.HERO_ENGINE_UPDATES === '0',
+      latest: latestStable,
+      prepare: (version, signal, progress) => prepareEngine(version, engineRoot, path.join(app.getAppPath(), 'scripts/engine-smoke.cjs'), signal, progress),
+      publish: publishRuntime,
+    });
     profiles = new ProfileManager(app.getPath('userData'));
     sessions = new SessionManager(profiles);
     tasks = new TaskManager(profiles);
@@ -261,6 +231,8 @@ if (!app.requestSingleInstanceLock()) {
       }
     });
     await createWindow();
+    engineUpdater.start();
+    if (mainWindow) setupApplicationMenu(mainWindow, { manager: () => manager, engineUpdater: () => engineUpdater });
     store = new DataStore(app.getPath('userData'));
     analysis = new DataAnalysis(store);
     jobRunner = new JobRunner(store, manager!, tasks, profiles);
@@ -271,14 +243,23 @@ if (!app.requestSingleInstanceLock()) {
       browser: manager!,
       profiles,
       tasks,
+      sessions,
       auditLogger,
+      engineUpdater,
       store,
       jobRunner,
       analysis,
       recorder,
+      restartApp,
     });
-    void bridge.start().then(() => { mcpStatus = 'ready'; publishRuntime(); }).catch(() => {
-      mcpStatus = 'failed'; publishRuntime();
+
+    void bridge.start().then(res => {
+      bridgePort = res.port;
+      mcpStatus = 'ready';
+      publishRuntime();
+    }).catch(() => {
+      mcpStatus = 'failed';
+      publishRuntime();
     });
     app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) void createWindow(); });
   }).catch(error => {

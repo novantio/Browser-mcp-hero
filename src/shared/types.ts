@@ -1,4 +1,11 @@
+import type { EngineUpdateState } from './engine-update';
 import type { ProfileState } from './profiles';
+export interface CertificateWarning {
+  requestId: string;
+  host: string;
+  url: string;
+}
+
 export interface BrowserTab {
   id: string;
   title: string;
@@ -7,9 +14,11 @@ export interface BrowserTab {
   canGoBack: boolean;
   canGoForward: boolean;
   error: string | null;
+  certificateWarning?: CertificateWarning | null;
 }
 
 export interface BrowserState extends ProfileState {
+  engineUpdate?: EngineUpdateState;
   tasks?: AutomationTask[];
   mcpStatus?: "starting" | "ready" | "failed";
   tabs: BrowserTab[];
@@ -24,6 +33,9 @@ export interface AutomationTask {
   status: TaskStatus;
   createdAt: number;
   updatedAt: number;
+  ttlMs?: number;
+  retentionMs?: number;
+  pausedReason?: 'manual' | 'inactivity' | 'preempted';
   error?: string;
   intervention?: {
     reason: string;
@@ -44,10 +56,13 @@ export type BrowserCommand =
   | { action: 'share-session'; targetIds: string[] }
   | { action: 'create-profile'; name: string }
   | { action: 'switch-profile' | 'delete-profile'; profileId: string }
+  | { action: 'rename-profile'; profileId: string; name: string }
+  | { action: 'duplicate-profile'; profileId: string; name: string; copyLogin: boolean }
   | { action: 'close-tab' | 'switch-tab'; tabId: string }
   | { action: 'navigate'; input: string }
   | { action: 'back' | 'forward' | 'reload' | 'stop' | 'home' }
-  | { action: 'resume-human-intervention'; taskId: string };
+  | { action: 'resume-human-intervention'; taskId: string }
+  | { action: 'certificate-response'; allow: boolean };
 
 export interface ViewBounds { x: number; y: number; width: number; height: number }
 export type CommandResult = { ok: true } | { ok: false; error: string };
@@ -61,7 +76,29 @@ export interface ActivityEvent {
   detail?: string;
 }
 
+export interface McpIntegrationConfig {
+  mcpScriptPath: string;
+  projectDir: string;
+  claudeDesktopConfig: {
+    mcpServers: {
+      'hero-browser': {
+        command: string;
+        args: string[];
+      };
+    };
+  };
+  geminiAntigravityConfig: {
+    'hero-browser': {
+      command: string;
+      args: string[];
+    };
+  };
+  cliCommand: string;
+  bridgePort?: number;
+}
+
 export interface BrowserAPI {
+  engineCommand(action: 'check' | 'enable' | 'disable'): Promise<EngineUpdateState>;
   getState(): Promise<BrowserState>;
   command(command: BrowserCommand): Promise<CommandResult>;
   setBounds(bounds: ViewBounds): Promise<void>;
@@ -69,6 +106,11 @@ export interface BrowserAPI {
   onFocusAddress(listener: () => void): () => void;
   onHumanIntervention(listener: (req: HumanInterventionRequest | null) => void): () => void;
   onActivity(listener: (event: ActivityEvent) => void): () => void;
+  getMcpConfig?(): Promise<McpIntegrationConfig>;
+  copyToClipboard?(text: string): Promise<boolean>;
+  onOpenMcpModal?(listener: () => void): () => void;
+  /** Menu shortcuts that must work while a web page has keyboard focus. */
+  onMenuAction?(listener: (action: 'toggle-panel' | 'manage-profiles') => void): () => void;
   dataOverview?(): Promise<Record<string, unknown>>;
   dataJobs?(): Promise<unknown[]>;
   dataDatasets?(): Promise<unknown[]>;

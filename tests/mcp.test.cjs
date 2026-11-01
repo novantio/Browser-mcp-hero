@@ -8,6 +8,9 @@ const { ProfileManager } = require('../dist/main/profile-manager');
 const { TaskManager } = require('../dist/main/task-manager');
 const { McpBridge } = require('../dist/main/mcp-bridge');
 const { AuditLogger } = require('../dist/main/audit-logger');
+const { Client } = require('@modelcontextprotocol/sdk/client/index.js');
+const { InMemoryTransport } = require('@modelcontextprotocol/sdk/inMemory.js');
+const { createHeroMcpServer } = require('../dist/mcp');
 
 function makeTempDir() {
   return mkdtempSync(path.join(os.tmpdir(), 'hero-mcp-test-'));
@@ -87,6 +90,7 @@ test('TaskManager supports human-in-the-loop pause and resume', async () => {
 
 test('McpBridge provides secure local RPC and manages bridge file', async () => {
   const dir = makeTempDir();
+  let bridge;
   try {
     const profiles = new ProfileManager(dir);
     const tasks = new TaskManager(profiles);
@@ -105,83 +109,137 @@ test('McpBridge provides secure local RPC and manages bridge file', async () => 
       captureScreenshot: async () => 'base64image',
       waitFor: async () => true,
       scroll: async () => {},
+      getCookies: async (opts) => ({ cookies: [{ name: 'sessionid', value: 'secret_tiktok_123', domain: 'tiktok.com' }], count: 1 }),
+      setCookie: async (opts) => ({ ok: true, name: opts.name, domain: opts.domain }),
+      getStorage: async (opts) => ({ type: opts.type || 'local', entries: { theme: 'dark', auth_state: 'logged_in' }, count: 2 }),
+      setStorage: async (opts) => ({ ok: true, action: opts.action || 'set', type: opts.type || 'local' }),
+      dragAndDrop: async (opts) => ({ ok: true, from: { x: 50, y: 100 }, to: { x: 250, y: 100 } }),
     };
 
-    const bridge = new McpBridge({
+    bridge = new McpBridge({
       userDataDir: dir,
       browser: mockBrowser,
       profiles,
       tasks,
     });
 
-    const { port, token } = await bridge.start();
-    const bridgeFile = path.join(dir, 'mcp-bridge.json');
-    assert.equal(existsSync(bridgeFile), true);
+      const { port, token } = await bridge.start();
+      const bridgeFile = path.join(dir, 'mcp-bridge.json');
+      assert.equal(existsSync(bridgeFile), true);
 
-    const fileContent = JSON.parse(readFileSync(bridgeFile, 'utf8'));
-    assert.equal(fileContent.port, port);
-    assert.equal(fileContent.token, token);
+      const fileContent = JSON.parse(readFileSync(bridgeFile, 'utf8'));
+      assert.equal(fileContent.port, port);
+      assert.equal(fileContent.token, token);
 
-    // Test helper
-    async function rpc(method, params = {}, authHeader = `Bearer ${token}`) {
-      return new Promise((resolve, reject) => {
-        const postData = JSON.stringify({ method, params });
-        const headers = { 'Content-Type': 'application/json' };
-        if (authHeader) headers['Authorization'] = authHeader;
-        const req = http.request({
-          hostname: '127.0.0.1',
-          port,
-          path: '/rpc',
-          method: 'POST',
-          headers,
-        }, res => {
-          let raw = '';
-          res.on('data', c => { raw += c; });
-          res.on('end', () => {
-            resolve({ statusCode: res.statusCode, body: JSON.parse(raw) });
+      // Test helper
+      async function rpc(method, params = {}, authHeader = `Bearer ${token}`) {
+        return new Promise((resolve, reject) => {
+          const postData = JSON.stringify({ method, params });
+          const headers = { 'Content-Type': 'application/json' };
+          if (authHeader) headers['Authorization'] = authHeader;
+          const req = http.request({
+            hostname: '127.0.0.1',
+            port,
+            path: '/rpc',
+            method: 'POST',
+            headers,
+          }, res => {
+            let raw = '';
+            res.on('data', c => { raw += c; });
+            res.on('end', () => {
+              try {
+                resolve({ statusCode: res.statusCode, body: JSON.parse(raw) });
+              } catch {
+                resolve({ statusCode: res.statusCode, body: raw });
+              }
+            });
           });
+          req.on('error', reject);
+          req.write(postData);
+          req.end();
         });
-        req.on('error', reject);
-        req.write(postData);
-        req.end();
-      });
+      }
+
+      // 1. Unauthorized request fails
+      const unauth = await rpc('profiles.list', {}, null);
+      assert.equal(unauth.statusCode, 401);
+
+      // 2. Bad token fails
+      const badToken = await rpc('profiles.list', {}, 'Bearer invalid-token');
+      assert.equal(badToken.statusCode, 401);
+
+      // 3. Profiles list
+      const profList = await rpc('profiles.list');
+      assert.equal(profList.statusCode, 200);
+      assert.ok(Array.isArray(profList.body.result));
+      assert.ok(profList.body.result.some(p => p.id === 'default' && p.isActive));
+
+      // 4. Task creation and lifecycle over RPC
+      const taskRes = await rpc('tasks.create', { profileId: 'default', taskId: 'rpc-task-1' });
+      assert.equal(taskRes.body.ok, true);
+      assert.equal(taskRes.body.result.id, 'rpc-task-1');
+      assert.equal(taskRes.body.result.status, 'RUNNING');
+
+      const statusRes = await rpc('tasks.get', { taskId: 'rpc-task-1' });
+      assert.equal(statusRes.body.result.status, 'RUNNING');
+
+      // 5. Cookies RPC
+      const getCookiesRes = await rpc('cookies.get', { taskId: 'rpc-task-1', domain: 'tiktok.com' });
+      assert.equal(getCookiesRes.statusCode, 200);
+      assert.equal(getCookiesRes.body.result.count, 1);
+      assert.equal(getCookiesRes.body.result.cookies[0].name, 'sessionid');
+
+      const setCookieRes = await rpc('cookies.set', { taskId: 'rpc-task-1', url: 'https://www.tiktok.com', name: 'sessionid', value: 'xyz123' });
+      assert.equal(setCookieRes.statusCode, 200);
+      assert.equal(setCookieRes.body.result.name, 'sessionid');
+
+      // 6. Storage RPC
+      const getStorageRes = await rpc('storage.get', { taskId: 'rpc-task-1', type: 'local' });
+      assert.equal(getStorageRes.statusCode, 200);
+      assert.equal(getStorageRes.body.result.entries.auth_state, 'logged_in');
+
+      const setStorageRes = await rpc('storage.set', { taskId: 'rpc-task-1', type: 'local', action: 'set', key: 'auth_state', value: 'logged_in' });
+      assert.equal(setStorageRes.statusCode, 200);
+      assert.equal(setStorageRes.body.result.ok, true);
+
+      // 7. Drag & Drop RPC
+      const dragRes = await rpc('automation.dragAndDrop', { taskId: 'rpc-task-1', from: { x: 50, y: 100 }, to: { x: 250, y: 100 }, steps: 5 });
+      assert.equal(dragRes.statusCode, 200);
+      assert.equal(dragRes.body.result.ok, true);
+      assert.deepEqual(dragRes.body.result.from, { x: 50, y: 100 });
+
+      await rpc('tasks.complete', { taskId: 'rpc-task-1' });
+      const afterComplete = await rpc('tasks.get', { taskId: 'rpc-task-1' });
+      assert.equal(afterComplete.body.result.status, 'COMPLETED');
+
+      // 8. Stale lock recovery & force unlock
+      await rpc('tasks.create', { profileId: 'default', taskId: 'rpc-task-stale' });
+      assert.equal(profiles.isLocked('default'), true);
+
+      // Creating another task on default fails with PROFILE_BUSY
+      const busyRes = await rpc('tasks.create', { profileId: 'default', taskId: 'rpc-task-blocked' });
+      assert.equal(busyRes.body.ok, false);
+      assert.equal(busyRes.body.code, 'PROFILE_BUSY');
+
+      // Force unlock via profiles.unlock
+      const unlockRes = await rpc('profiles.unlock', { profileId: 'default' });
+      assert.equal(unlockRes.statusCode, 200);
+      assert.equal(profiles.isLocked('default'), false);
+
+      // Or creating with force: true automatically unlocks previous stale task
+      await rpc('tasks.create', { profileId: 'default', taskId: 'rpc-task-stale-2' });
+      const forceTaskRes = await rpc('tasks.create', { profileId: 'default', taskId: 'rpc-task-new', force: true });
+      assert.equal(forceTaskRes.statusCode, 200);
+      assert.equal(forceTaskRes.body.result.id, 'rpc-task-new');
+      await rpc('tasks.complete', { taskId: 'rpc-task-new' });
+
+      // Stop bridge
+      bridge.stop();
+      assert.equal(existsSync(bridgeFile), false);
+    } finally {
+      bridge?.stop();
+      rmSync(dir, { recursive: true, force: true });
     }
-
-    // 1. Unauthorized request fails
-    const unauth = await rpc('ping', {}, 'Bearer invalid-token');
-    assert.equal(unauth.statusCode, 401);
-
-    // 2. Ping succeeds
-    const pingRes = await rpc('ping');
-    assert.equal(pingRes.statusCode, 200);
-    assert.equal(pingRes.body.ok, true);
-    assert.equal(pingRes.body.result.activeProfileId, 'default');
-
-    // 3. Profiles list
-    const profList = await rpc('profiles.list');
-    assert.equal(profList.statusCode, 200);
-    assert.ok(Array.isArray(profList.body.result));
-    assert.ok(profList.body.result.some(p => p.id === 'default' && p.isActive));
-
-    // 4. Task creation and lifecycle over RPC
-    const taskRes = await rpc('tasks.create', { profileId: 'youtube', taskId: 'rpc-task-1' });
-    assert.equal(taskRes.body.ok, true);
-    assert.equal(taskRes.body.result.id, 'rpc-task-1');
-    assert.equal(taskRes.body.result.status, 'RUNNING');
-
-    const statusRes = await rpc('tasks.get', { taskId: 'rpc-task-1' });
-    assert.equal(statusRes.body.result.status, 'RUNNING');
-
-    await rpc('tasks.complete', { taskId: 'rpc-task-1' });
-    const afterComplete = await rpc('tasks.get', { taskId: 'rpc-task-1' });
-    assert.equal(afterComplete.body.result.status, 'COMPLETED');
-
-    // Stop bridge
-    bridge.stop();
-    assert.equal(existsSync(bridgeFile), false);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
 });
 
 test('AuditLogger scrubs secrets, records to audit.log, and emits activity events', () => {

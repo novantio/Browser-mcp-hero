@@ -1,11 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
-import type { Job, JobDefinition, DataRecord, Snapshot, Change } from '../../shared/data-contracts';
+import type { Job, JobDefinition, Snapshot, Change } from '../../shared/data-contracts';
 import { DataStore } from './store';
 import { BrowserManager } from '../browser-manager';
 import { TaskManager } from '../task-manager';
 import { ProfileManager } from '../profile-manager';
-import { assess, differences, hash, privateText } from './processing';
+import { differences } from './processing';
+import { buildRecord } from './record-builder';
 import { paginate } from './analysis';
 import { RpcError } from '../../shared/rpc-error';
 import { NetworkIntelligence } from './network-intelligence';
@@ -329,45 +330,15 @@ export class JobRunner {
               }
 
               for (const row of rows) {
-                const rowText = Object.entries(row)
-                  .map(([k, v]) => `${k}: ${typeof v === 'object' ? JSON.stringify(v) : String(v)}`)
-                  .join('\n');
-                const safe = privateText(rowText);
-                const info = assess(safe.text);
-                let domain = '';
-                try { domain = new URL(target).hostname; } catch {}
-                const record: DataRecord = {
-                  id: randomUUID(),
-                  text: safe.text,
-                  data: row,
-                  hash: hash(row),
-                  language: info.language,
-                  quality: info.quality,
-                  pii: safe.pii,
-                  spam: info.spam,
-                  source: {
-                    url: target,
-                    domain,
-                    sourceType: job.sourceType || 'web',
-                    collectedAt,
-                    profileId: job.profileId,
-                    topic: job.topic || '',
-                  },
-                  provenance: {
-                    jobId: job.id,
-                    runId: job.runId || '',
-                    snapshotId: snapshot.id,
-                    extractorVersion: 'v1',
-                  },
-                };
+                const record = buildRecord(row, { job, url: target, snapshotId: snapshot.id, collectedAt });
                 this.store.addRecord(record);
-                if (safe.pii || info.quality < 0.4) {
+                if (record.pii || record.quality < 0.4) {
                   this.reviewQueue.addItem({
-                    type: safe.pii ? 'pii_flag' : 'low_confidence',
+                    type: record.pii ? 'pii_flag' : 'low_confidence',
                     jobId: job.id,
                     recordId: record.id,
                     payload: row,
-                    confidence: info.quality,
+                    confidence: record.quality,
                   });
                 }
                 job.records++;
