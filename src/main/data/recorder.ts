@@ -1,3 +1,4 @@
+import { execWithTimeout } from '../page-exec';
 import { randomUUID } from 'node:crypto';
 import type { Recording, WorkflowStep, ExtractionSpec, Job } from '../../shared/data-contracts';
 import { DataStore } from './store';
@@ -54,7 +55,7 @@ export class InteractionRecorder {
     this.activeCleanups.push(() => contents.off('did-navigate', onNavigate));
 
     const injectScript = async () => {
-      await contents.executeJavaScript(`
+      await execWithTimeout(contents, `
         (() => {
           if (window.__HERO_RECORDER_ACTIVE__) return;
           window.__HERO_RECORDER_ACTIVE__ = true;
@@ -128,7 +129,7 @@ export class InteractionRecorder {
 
     try {
       const contents = this.browser.getActiveWebContents();
-      const buffered = await contents.executeJavaScript(`
+      const buffered = await execWithTimeout(contents, `
         (() => {
           const buf = window.__HERO_RECORDER_BUFFER__ || [];
           window.__HERO_RECORDER_BUFFER__ = [];

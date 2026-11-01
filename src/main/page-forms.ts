@@ -505,6 +505,7 @@ export function findPageElements(options: {
     selector?: string;
     boundingBox: { x: number; y: number; width: number; height: number };
     attributes: Record<string, string>;
+    context?: string;
   }>;
 } {
   const query = (options.query || '').trim().toLowerCase();
@@ -568,6 +569,7 @@ export function findPageElements(options: {
     selector?: string;
     boundingBox: { x: number; y: number; width: number; height: number };
     attributes: Record<string, string>;
+    context?: string;
   }> = [];
 
   for (const el of filtered) {
@@ -615,6 +617,18 @@ export function findPageElements(options: {
     const nameLower = name.toLowerCase();
     const nameTokens = nameLower.split(/\s+/).filter(Boolean);
 
+    // Nearby text (e.g. the product row a generic "Add" button lives in) so a
+    // query like "Add button for Tea" can tell identical buttons apart.
+    let context = '';
+    for (let parent = el.parentElement, depth = 0; parent && parent !== document.body && depth < 5; parent = parent.parentElement, depth++) {
+      const text = ((parent as HTMLElement).innerText || parent.textContent || '').replace(/\s+/g, ' ').trim();
+      if (text.length > name.length + 2) {
+        if (text.length <= 300) context = text.replace(name, '').replace(/\s+/g, ' ').trim().slice(0, 150);
+        break;
+      }
+    }
+    const contextLower = context.toLowerCase();
+
     // Scoring
     let score = 0.0;
 
@@ -659,6 +673,15 @@ export function findPageElements(options: {
 
     if (score < 0.25) continue;
 
+    // Query words not explained by the element's own name must be found nearby.
+    const filler = new Set(['tombol', 'button', 'btn', 'untuk', 'for', 'the', 'di', 'pada', 'yang', 'link', 'tautan', 'klik', 'click',
+      'ke', 'to', 'of', 'on', 'in', 'dan', 'and', 'a', 'an', 'field', 'input', 'kolom', 'item', 'dari', 'milik']);
+    const extraTokens = queryTokens.filter(qt => !filler.has(qt) && !nameTokens.some(nt => nt.includes(qt) || qt.includes(nt)));
+    if (extraTokens.length > 0 && contextLower) {
+      const hits = extraTokens.filter(qt => contextLower.includes(qt)).length;
+      score += 0.3 * (hits / extraTokens.length);
+    }
+
     const elementId = getOrAssignId(el);
     const rect = el.getBoundingClientRect();
     const boundingBox = {
@@ -677,6 +700,7 @@ export function findPageElements(options: {
     scored.push({
       elementId,
       score: Math.round(score * 100) / 100,
+      ...(context ? { context } : {}),
       name,
       role,
       tag,

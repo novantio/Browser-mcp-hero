@@ -1,3 +1,4 @@
+import { execWithTimeout } from '../page-exec';
 import type { WebContents } from 'electron';
 import type { HealedSelector } from '../../shared/data-contracts';
 
@@ -6,7 +7,7 @@ export class SelectorHealer {
 
   async heal(contents: WebContents, brokenSelector: string, previousTag?: string, contextSnippet?: string): Promise<HealedSelector> {
     try {
-      const candidates = await contents.executeJavaScript(`
+      const candidates = await execWithTimeout(contents, `
         (() => {
           const broken = ${JSON.stringify(brokenSelector)};
           const tag = ${JSON.stringify(previousTag || '')};

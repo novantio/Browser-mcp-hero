@@ -18,17 +18,25 @@ import { paginate } from './data/analysis';
 import { RpcError, publicError } from '../shared/rpc-error';
 import { redactText } from '../shared/redaction';
 
+import type { SessionManager } from './session-manager';
+import type { SocialAccountInfo } from '../shared/profiles';
+
 export interface BridgeConfig {
+  engineUpdater?: import('./engine-updater').EngineUpdater;
   userDataDir: string;
   browser: BrowserManager;
   profiles: ProfileManager;
   tasks: TaskManager;
+  sessions?: SessionManager;
   auditLogger?: AuditLogger;
   store?: DataStore;
   jobRunner?: JobRunner;
   analysis?: DataAnalysis;
   recorder?: InteractionRecorder;
+  /** Rebuilds and relaunches the app; used when the browser is stuck beyond tab recovery. */
+  restartApp?: () => void;
 }
+
 const envelope = z.object({ method: z.string().min(1).max(100), params: z.record(z.string(), z.unknown()).default({}) }).strict();
 
 function untilAborted<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
@@ -138,12 +146,80 @@ export class McpBridge {
 
   private async dispatch(method: string, params: Record<string, unknown>, requestSignal: AbortSignal): Promise<unknown> {
     const { browser, profiles, tasks, store, jobRunner, analysis, recorder } = this.config;
+    if (method === 'engine.status' || method === 'engine.check') {
+      if (!this.config.engineUpdater) throw new RpcError('ENGINE_UNAVAILABLE', 'Pengelola pembaruan belum tersedia.');
+      if (method === 'engine.check') void this.config.engineUpdater.check();
+      return this.config.engineUpdater.snapshot();
+    }
+    if (method === 'app.restart') {
+      // Deliberately ignores browserBusy: restarting is the way out of a stuck browser.
+      if (!this.config.restartApp) throw new RpcError('SERVICE_UNAVAILABLE', 'Restart tidak tersedia pada mode ini.');
+      setTimeout(() => this.config.restartApp?.(), 300);
+      return { ok: true, restarting: true, message: 'Hero Browser sedang di-restart. Tunggu ±10-30 detik, lalu mulai task baru dengan browser_start_task.' };
+    }
     const taskId = String(params.taskId || '');
     if (taskId) tasks.touchTask(taskId);
     if (method === 'ping') return { ok: true, activeProfileId: profiles.activeProfileId, tabCount: browser.snapshot().tabs.length };
-    if (method === 'profiles.list') return profiles.listProfiles().map(p => ({
-      ...p, isActive: p.id === profiles.activeProfileId, isLocked: profiles.isLocked(p.id),
-    }));
+    if (method === 'profiles.list') {
+      const sessionMgr = this.config.sessions || (typeof (browser as any).getSessions === 'function' ? (browser as any).getSessions() : null);
+      const list = profiles.listProfiles();
+      return await Promise.all(list.map(async p => {
+        let loggedInServices: string[] = [];
+        let socialAccounts: SocialAccountInfo[] = [];
+        if (sessionMgr) {
+          try {
+            socialAccounts = await sessionMgr.getSocialLogins(p.id);
+            loggedInServices = socialAccounts.filter(a => a.loggedIn).map(a => a.platform);
+          } catch {
+            // ignore
+          }
+        }
+        return {
+          ...p,
+          isActive: p.id === profiles.activeProfileId,
+          isLocked: profiles.isLocked(p.id),
+          loggedInServices,
+          socialAccounts,
+        };
+      }));
+    }
+    if (method === 'profiles.getLogins') {
+      const sessionMgr = this.config.sessions || (typeof (browser as any).getSessions === 'function' ? (browser as any).getSessions() : null);
+      const targetProfileId = params.profileId ? String(params.profileId) : undefined;
+      const targetProfiles = targetProfileId ? [profiles.requireProfile(targetProfileId)] : profiles.listProfiles();
+
+      const recommendations: Record<string, string> = {};
+      const profileSummaries = await Promise.all(targetProfiles.map(async p => {
+        let loggedInServices: string[] = [];
+        let socialAccounts: SocialAccountInfo[] = [];
+        if (sessionMgr) {
+          try {
+            socialAccounts = await sessionMgr.getSocialLogins(p.id);
+            loggedInServices = socialAccounts.filter(a => a.loggedIn).map(a => a.platform);
+          } catch {
+            // ignore
+          }
+        }
+        for (const s of loggedInServices) {
+          if (!recommendations[s]) {
+            recommendations[s] = p.id;
+          }
+        }
+        return {
+          profileId: p.id,
+          profileName: p.name,
+          isActive: p.id === profiles.activeProfileId,
+          loggedInServices,
+          socialAccounts,
+        };
+      }));
+
+      return {
+        profiles: profileSummaries,
+        recommendations,
+      };
+    }
+
     if (method === 'profiles.unlock') {
       tasks.forceUnlockProfile(String(params.profileId));
       return { ok: true, profileId: String(params.profileId) };
@@ -151,8 +227,9 @@ export class McpBridge {
     if (method === 'tasks.create') {
       const targetProfile = String(params.profileId || profiles.activeProfileId);
       if (params.force) tasks.forceUnlockProfile(targetProfile);
-      const ttlSec = params.ttlSeconds !== undefined ? Number(params.ttlSeconds) : 120;
-      return tasks.createTask(targetProfile, taskId || undefined, ttlSec);
+      const ttlSec = params.ttlSeconds !== undefined ? Number(params.ttlSeconds) : 600;
+      const retentionSec = params.retentionSeconds !== undefined ? Number(params.retentionSeconds) : 1800;
+      return tasks.createTask(targetProfile, taskId || undefined, ttlSec, retentionSec);
     }
     if (method === 'tasks.list') return tasks.listTasks();
     if (method === 'tasks.get') {
@@ -389,8 +466,15 @@ export class McpBridge {
   }
 
   private async browserAction(method: string, p: Record<string, unknown>, signal: AbortSignal): Promise<unknown> {
-    const { browser, profiles } = this.config;
-    const tabs = () => browser.snapshot().tabs.map(tab => ({ ...tab, url: redactText(tab.url), error: tab.error ? 'Halaman gagal dimuat.' : null }));
+    const { browser, profiles, tasks } = this.config;
+    const taskId = String(p.taskId || '');
+    const tabs = () => browser.snapshot().tabs.map(tab => ({
+      ...tab,
+      url: redactText(tab.url),
+      error: tab.error ? 'Halaman gagal dimuat.' : null,
+      certificateWarning: tab.certificateWarning ? { requestId: tab.certificateWarning.requestId, host: redactText(tab.certificateWarning.host), url: redactText(tab.certificateWarning.url) } : tab.certificateWarning ?? null,
+    }));
+
     const tabId = String(p.tabId || '');
     if (['tabs.close', 'tabs.switch'].includes(method) && !browser.snapshot().tabs.some(t => t.id === tabId))
       throw new RpcError('TAB_NOT_FOUND', 'Tab tidak ada pada profil tugas.');
@@ -403,18 +487,39 @@ export class McpBridge {
       case 'tabs.close': browser.execute({ action: 'close-tab', tabId }); return tabs();
       case 'tabs.switch': browser.execute({ action: 'switch-tab', tabId }); return tabs();
       case 'tabs.navigate': {
-        browser.execute({ action: 'navigate', input: String(p.url) });
+        const targetUrl = String(p.url);
+        const resolvedUrl = typeof (browser as any).navigateToUrl === 'function'
+          ? await (browser as any).navigateToUrl(targetUrl, signal)
+          : (() => { browser.execute({ action: 'navigate', input: targetUrl }); return targetUrl; })();
+        const activeTab = browser.snapshot().tabs.find(t => t.id === browser.snapshot().activeTabId);
+        const certWarning = activeTab?.certificateWarning ?? null;
+        if (certWarning) {
+          return {
+            url: redactText(String(resolvedUrl)),
+            status: 'certificate_warning',
+            certificateWarning: { host: redactText(certWarning.host) },
+            hint: 'Sertifikat TLS tidak valid. Setujui lewat UI Hero Browser untuk melanjutkan.',
+          };
+        }
         if (p.expect) {
           const verified = await browser.verifyCondition(browser.getActiveWebContents(), p.expect as any, signal);
-          return { url: redactText(String(p.url)), status: verified ? 'verified' : 'unverified' };
+          return { url: redactText(String(resolvedUrl)), status: verified ? 'verified' : 'unverified' };
         }
-        return { url: redactText(String(p.url)) };
+        return { url: redactText(String(resolvedUrl)) };
       }
-      case 'tabs.reload': browser.execute({ action: 'reload' }); break;
+      case 'tabs.reload':
+        return await browser.reloadTab({ hard: p.hard as boolean | undefined, force: p.force as boolean | undefined }, signal);
       case 'tabs.back': browser.execute({ action: 'back' }); break;
       case 'tabs.forward': browser.execute({ action: 'forward' }); break;
       case 'automation.observe':
-        return await browser.observe({ maxLength: p.maxLength as number | undefined });
+        return await browser.observe({ maxLength: p.maxLength as number | undefined, format: p.format as 'text' | 'json' | 'both' | undefined });
+      case 'automation.readText': {
+        const page = await browser.readText({
+          url: p.url as string | undefined, source: p.source as 'auto' | 'fetch' | 'live' | undefined,
+          maxLength: p.maxLength as number | undefined, mainOnly: p.mainOnly as boolean | undefined, includeLinks: p.includeLinks as boolean | undefined,
+        }, signal);
+        return { ...page, url: redactText(page.url) };
+      }
       case 'automation.click':
         if (Number(Boolean(p.selector)) + Number(Boolean(p.text)) + Number(p.elementId !== undefined) !== 1)
           throw new RpcError('INVALID_INPUT', 'Berikan tepat satu target klik.');
@@ -515,8 +620,22 @@ export class McpBridge {
           p.previousTag as string | undefined,
           p.contextSnippet as string | undefined
         );
-      case 'automation.detectChallenge':
-        return await browser.detectChallenge();
+      case 'automation.detectChallenge': {
+        const result = await browser.detectChallenge();
+        if (result.detected && p.autoIntervene && taskId) {
+          const req = tasks.requestHumanIntervention(taskId, {
+            reason: `Tantangan Keamanan (${result.provider || 'CAPTCHA'}) Terdeteksi`,
+            message: result.details || 'Tantangan keamanan (CAPTCHA TikTok/Cloudflare/dll) terdeteksi di browser. Silakan selesaikan tantangan di layar browser, lalu klik Lanjutkan.',
+          });
+          return {
+            ...result,
+            status: 'human_required',
+            taskId: req.taskId,
+            resumeToken: req.resumeToken,
+          };
+        }
+        return result;
+      }
       case 'automation.uploadFile':
         if (Number(Boolean(p.selector)) + Number(p.elementId !== undefined) !== 1) {
           throw new RpcError('INVALID_INPUT', 'Berikan tepat satu target upload.');
@@ -534,8 +653,27 @@ export class McpBridge {
         return await browser.createCheckpoint(p.name as string | undefined);
       case 'automation.rollbackCheckpoint':
         return await browser.rollbackCheckpoint(String(p.name), signal);
-      case 'automation.act':
-        return await browser.act(p as any, signal);
+      case 'automation.act': {
+        const actRes = await browser.act(p as any, signal);
+        if (actRes.challengeDetected && p.autoChallengeIntervention !== false && taskId) {
+          try {
+            const req = tasks.requestHumanIntervention(taskId, {
+              reason: `Tantangan Bot / CAPTCHA Terdeteksi saat Aksi`,
+              message: actRes.message || 'Tantangan bot/CAPTCHA terdeteksi di layar. Silakan selesaikan CAPTCHA di browser lalu klik Lanjutkan.',
+            });
+            return {
+              ...actRes,
+              status: 'human_required',
+              resumeToken: req.resumeToken,
+              message: `${actRes.message} Tugas dialihkan ke intervensi manusia (human_required). Pengguna sedang menyelesaikan CAPTCHA di browser.`,
+            };
+          } catch {
+            // ignore if task is already in intervention or completed
+          }
+        }
+        return actRes;
+      }
+
       case 'cookies.get':
         return await browser.getCookies({
           url: p.url as string | undefined,

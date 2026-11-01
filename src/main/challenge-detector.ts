@@ -1,9 +1,24 @@
 import type { WebContents } from 'electron';
 
+export type ChallengeProvider =
+  | 'cloudflare_turnstile'
+  | 'google_recaptcha'
+  | 'hcaptcha'
+  | 'arkose_labs'
+  | 'cloudflare_wait_screen'
+  | 'tiktok_captcha'
+  | 'geetest'
+  | 'datadome'
+  | 'aws_waf'
+  | 'custom';
+
 export interface ChallengeDetectionResult {
   detected: boolean;
-  provider?: 'cloudflare_turnstile' | 'google_recaptcha' | 'hcaptcha' | 'arkose_labs' | 'cloudflare_wait_screen' | 'custom';
+  provider?: ChallengeProvider;
   details?: string;
+  status?: 'human_required' | 'challenge_detected' | 'clean';
+  taskId?: string;
+  resumeToken?: string;
 }
 
 /**
@@ -14,7 +29,37 @@ export function checkPageChallenge(): ChallengeDetectionResult {
   const title = (document.title || '').toLowerCase();
   const bodyText = (document.body ? (document.body.innerText || document.body.textContent || '') : '').toLowerCase();
 
-  // 1. Cloudflare Wait Screen / Challenge Page
+  // 1. TikTok / ByteDance SecSDK CAPTCHA (puzzle slider, rotate, select 2 objects)
+  const tiktokCaptchaElem = document.querySelector(
+    '#captcha_container, #captcha-verify-image, #tiktok-verify-ele, ' +
+    '.captcha_verify_container, .secsdk-captcha-drag-wrapper, .secsdk-captcha-container, ' +
+    '.tiktok-verify-wrapper, .captcha-verify-container, .captcha_verify_slide, ' +
+    '.captcha_verify_bar, .captcha_verify_img--wrapper, [class*="secsdk-captcha"], ' +
+    '[class*="captcha-verify-container"]'
+  );
+  const tiktokIframe = document.querySelector(
+    'iframe[src*="security-captcha"], iframe[src*="captcha.tiktok.com"], ' +
+    'iframe[src*="falcon/captcha_wrapper"], iframe[src*="bytedance.com/secsdk"]'
+  );
+
+  const hasTiktokChallengeText =
+    (bodyText.includes('verify to continue') || bodyText.includes('verifikasi untuk melanjutkan')) ||
+    (bodyText.includes('drag the slider') || bodyText.includes('tarik penggeser') || bodyText.includes('geser slider')) ||
+    (bodyText.includes('select 2 objects that are the same shape') || bodyText.includes('pilih 2 objek berbentuk sama') || bodyText.includes('pilih 2 objek')) ||
+    (bodyText.includes('rotate the shapes') || bodyText.includes('putar bentuk') || bodyText.includes('putar gambar')) ||
+    (bodyText.includes('fit the puzzle') || bodyText.includes('lengkapi teka-teki'));
+
+  const isTiktokHost = window.location.hostname.includes('tiktok.com');
+
+  if (tiktokCaptchaElem || tiktokIframe || (isTiktokHost && hasTiktokChallengeText)) {
+    return {
+      detected: true,
+      provider: 'tiktok_captcha',
+      details: 'TikTok / ByteDance SecSDK CAPTCHA terdeteksi (puzzle slider, 2 objek serupa, atau rotasi gambar).',
+    };
+  }
+
+  // 2. Cloudflare Wait Screen / Challenge Page
   if (
     title.includes('just a moment...') ||
     title.includes('attention required! | cloudflare') ||
@@ -28,7 +73,7 @@ export function checkPageChallenge(): ChallengeDetectionResult {
     };
   }
 
-  // 2. Cloudflare Turnstile
+  // 3. Cloudflare Turnstile
   const turnstileIframe = document.querySelector(
     'iframe[src*="challenges.cloudflare.com"], iframe[src*="turnstile"], div.cf-turnstile, #turnstile-wrapper'
   );
@@ -40,7 +85,7 @@ export function checkPageChallenge(): ChallengeDetectionResult {
     };
   }
 
-  // 3. Google reCAPTCHA (v2 / v3 / Enterprise)
+  // 4. Google reCAPTCHA (v2 / v3 / Enterprise)
   const recaptcha = document.querySelector(
     'iframe[src*="google.com/recaptcha"], iframe[src*="recaptcha.net/recaptcha"], iframe[title*="recaptcha"], div.g-recaptcha, #recaptcha'
   );
@@ -52,7 +97,7 @@ export function checkPageChallenge(): ChallengeDetectionResult {
     };
   }
 
-  // 4. hCaptcha
+  // 5. hCaptcha
   const hcaptcha = document.querySelector(
     'iframe[src*="hcaptcha.com"], div.h-captcha, iframe[data-hcaptcha-widget-id]'
   );
@@ -64,7 +109,7 @@ export function checkPageChallenge(): ChallengeDetectionResult {
     };
   }
 
-  // 5. Arkose Labs / FunCAPTCHA
+  // 6. Arkose Labs / FunCAPTCHA
   const arkose = document.querySelector(
     'iframe[src*="arkoselabs.com"], iframe[src*="funcaptcha"], #fc-iframe-wrap'
   );
@@ -76,6 +121,40 @@ export function checkPageChallenge(): ChallengeDetectionResult {
     };
   }
 
+  // 7. Geetest CAPTCHA
+  const geetest = document.querySelector(
+    '.geetest_holder, .geetest_wind, .geetest_radar, .geetest_popup, .geetest_panel'
+  );
+  if (geetest) {
+    return {
+      detected: true,
+      provider: 'geetest',
+      details: 'Widget Geetest CAPTCHA terdeteksi.',
+    };
+  }
+
+  // 8. DataDome
+  const datadome = document.querySelector(
+    'iframe[src*="datadome.co"], iframe[src*="captcha-delivery.com"]'
+  );
+  if (datadome || title.includes('datadome')) {
+    return {
+      detected: true,
+      provider: 'datadome',
+      details: 'DataDome bot protection challenge terdeteksi.',
+    };
+  }
+
+  // 9. AWS WAF CAPTCHA
+  const awswaf = document.querySelector('#aws-waf-captcha, iframe[src*="awswaf"]');
+  if (awswaf || (bodyText.includes('aws waf') && bodyText.includes('captcha'))) {
+    return {
+      detected: true,
+      provider: 'aws_waf',
+      details: 'AWS WAF CAPTCHA terdeteksi.',
+    };
+  }
+
   return { detected: false };
 }
 
@@ -84,7 +163,12 @@ export async function detectPageChallenge(contents: WebContents): Promise<Challe
     return { detected: false };
   }
   try {
-    const result = await contents.executeJavaScript('(' + checkPageChallenge.toString() + ')()');
+    // A busy page must not stall every observe/act call behind challenge detection.
+    let timer: NodeJS.Timeout | undefined;
+    const result = await Promise.race([
+      contents.executeJavaScript('(' + checkPageChallenge.toString() + ')()'),
+      new Promise<ChallengeDetectionResult>(resolve => { timer = setTimeout(() => resolve({ detected: false }), 3000); }),
+    ]).finally(() => clearTimeout(timer));
     return result as ChallengeDetectionResult;
   } catch {
     return { detected: false };

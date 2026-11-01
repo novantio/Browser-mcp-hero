@@ -1,7 +1,12 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, clipboard } from 'electron';
 import path from 'node:path';
+import { existsSync } from 'node:fs';
+import { spawn } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { BrowserManager } from './browser-manager';
+import { EngineUpdater } from './engine-updater';
+import { engineDirectory } from './engine-selection';
+import { latestStable, prepareEngine } from './engine-download';
 import { ProfileManager } from './profile-manager';
 import { SessionManager } from './session-manager';
 import { TaskManager } from './task-manager';
@@ -33,6 +38,7 @@ let store: DataStore;
 let analysis: DataAnalysis;
 let jobRunner: JobRunner;
 let recorder: InteractionRecorder;
+let engineUpdater: EngineUpdater;
 let commandBusy = false;
 let mcpStatus: "starting" | "ready" | "failed" = "starting";
 
@@ -70,6 +76,7 @@ function setupApplicationMenu(window: BrowserWindow): void {
             });
           },
         },
+        { label: 'Periksa Pembaruan Engine', click: () => { void engineUpdater?.check(); } },
         { type: 'separator' },
         { role: 'quit', label: 'Keluar Hero Browser' },
       ],
@@ -101,6 +108,7 @@ const runtimeState = (browser: BrowserManager) => ({
   ...browser.snapshot(),
   tasks: tasks.listTasks(),
   mcpStatus,
+  engineUpdate: engineUpdater?.snapshot(),
   dataOverview: jobRunner ? jobRunner.overview() : undefined,
 });
 function publishRuntime(): void {
@@ -170,6 +178,13 @@ async function handleCommand(browser: BrowserManager, command: BrowserCommand): 
   }
   browser.execute(command);
 }
+
+ipcMain.handle('browser:engine-command', (event, action: unknown) => {
+  requireTrustedSender(event);
+  if (!engineUpdater || !['check', 'enable', 'disable'].includes(String(action))) throw new Error('Perintah pembaruan tidak valid.');
+  if (action === 'check') { void engineUpdater.check(); return engineUpdater.snapshot(); }
+  return engineUpdater.setEnabled(action === 'enable');
+});
 
 ipcMain.handle('browser:state', event => runtimeState(requireTrustedSender(event)));
 ipcMain.handle('browser:command', async (event, value: unknown): Promise<CommandResult> => {
@@ -280,7 +295,7 @@ async function createWindow(): Promise<void> {
   (window as any).isHeadlessMode = isHeadless;
   mainWindow = window;
   const browser = new BrowserManager(window, state => {
-    if (!window.isDestroyed()) window.webContents.send('browser:state-changed', { ...state, tasks: tasks.listTasks(), mcpStatus });
+    if (!window.isDestroyed()) window.webContents.send('browser:state-changed', { ...state, tasks: tasks.listTasks(), mcpStatus, engineUpdate: engineUpdater?.snapshot() });
   }, profiles, sessions);
   manager = browser;
   tasks.setInterventionListener(req => {
@@ -319,6 +334,7 @@ async function createWindow(): Promise<void> {
     });
   });
   window.on('closed', () => {
+    engineUpdater?.stop();
     browser.dispose();
     bridge?.stop();
     bridge = null;
@@ -341,6 +357,24 @@ async function createWindow(): Promise<void> {
   }
 }
 
+/**
+ * Rebuild and relaunch through scripts/start.cjs so code changes and the selected engine
+ * apply. The helper waits for this process to exit first, otherwise the single-instance
+ * lock would make the new instance quit immediately.
+ */
+function restartApp(): void {
+  const startScript = path.join(app.getAppPath(), 'scripts/start.cjs');
+  if (app.isPackaged || !existsSync(startScript)) { app.relaunch(); app.quit(); return; }
+  const env: NodeJS.ProcessEnv = { ...process.env, ELECTRON_RUN_AS_NODE: '1', HERO_WAIT_FOR_PID: String(process.pid) };
+  const child = spawn(process.execPath, [startScript, ...process.argv.slice(2)], {
+    cwd: app.getAppPath(), detached: true, stdio: 'ignore', windowsHide: true, env,
+  });
+  child.on('error', () => { app.relaunch(); app.quit(); });
+  child.unref();
+  app.quit();
+  setTimeout(() => app.exit(0), 5000).unref();
+}
+
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
@@ -350,6 +384,15 @@ if (!app.requestSingleInstanceLock()) {
     mainWindow?.focus();
   });
   void app.whenReady().then(async () => {
+    const engineRoot = engineDirectory();
+    engineUpdater = new EngineUpdater({
+      directory: engineRoot, currentElectron: process.versions.electron, currentChromium: process.versions.chrome,
+      supported: !app.isPackaged && process.platform === 'win32' && ['x64', 'arm64'].includes(process.arch),
+      disabledByEnvironment: process.env.HERO_ENGINE_UPDATES === '0',
+      latest: latestStable,
+      prepare: (version, signal, progress) => prepareEngine(version, engineRoot, path.join(app.getAppPath(), 'scripts/engine-smoke.cjs'), signal, progress),
+      publish: publishRuntime,
+    });
     profiles = new ProfileManager(app.getPath('userData'));
     sessions = new SessionManager(profiles);
     tasks = new TaskManager(profiles);
@@ -361,6 +404,7 @@ if (!app.requestSingleInstanceLock()) {
       }
     });
     await createWindow();
+    engineUpdater.start();
     if (mainWindow) setupApplicationMenu(mainWindow);
     store = new DataStore(app.getPath('userData'));
     analysis = new DataAnalysis(store);
@@ -372,12 +416,16 @@ if (!app.requestSingleInstanceLock()) {
       browser: manager!,
       profiles,
       tasks,
+      sessions,
       auditLogger,
+      engineUpdater,
       store,
       jobRunner,
       analysis,
       recorder,
+      restartApp,
     });
+
     void bridge.start().then(res => {
       bridgePort = res.port;
       mcpStatus = 'ready';

@@ -1,15 +1,88 @@
 import { session } from 'electron';
 import type { Session } from 'electron';
+import { randomUUID } from 'node:crypto';
 import { ProfileManager } from './profile-manager';
 import { DownloadManager } from './download-manager';
+import { detectSessionSocialLogins } from './social-detector';
+import { CertificateTrustStore } from './certificate-trust';
+import { normalizeCertHost } from '../shared/navigation';
+import type { SocialAccountInfo } from '../shared/profiles';
+
+export interface CertificatePrompt {
+  requestId: string;
+  host: string;
+  url: string;
+}
+
+type CertificatePromptHandler = (prompt: CertificatePrompt) => void;
+
+interface PendingCertificate {
+  callback: (verificationResult: number) => void;
+  host: string;
+}
 
 export class SessionManager {
   private readonly sessions = new Map<string, Session>();
   private readonly downloadManager: DownloadManager;
+  private readonly socialCache = new Map<string, { timestamp: number; accounts: SocialAccountInfo[] }>();
+  private readonly trustStore: CertificateTrustStore;
+  private readonly pendingCertificates = new Map<string, PendingCertificate>();
+  private certificatePromptHandler: CertificatePromptHandler | null = null;
+  // Host of the current top-level navigation. Only this host may raise a
+  // certificate prompt; sub-resource certs (fonts, CDNs, trackers) never do.
+  private expectedMainFrameHosts = new Map<string, string>();
 
-  constructor(private readonly profiles: ProfileManager, downloadManager?: DownloadManager) {
+  constructor(private readonly profiles: ProfileManager, downloadManager?: DownloadManager, trustDirectory?: string) {
     this.downloadManager = downloadManager || new DownloadManager();
+    this.trustStore = new CertificateTrustStore(trustDirectory || this.downloadManager.userDataDirectory());
   }
+
+  onCertificatePrompt(handler: CertificatePromptHandler): void {
+    this.certificatePromptHandler = handler;
+  }
+
+  /** Declares the host the app is intentionally navigating a profile to (main frame). */
+  expectMainFrameHost(profileId: string, host: string): void {
+    const sessionOwner = this.profiles.getSessionProfileId(profileId);
+    const normalized = normalizeCertHost(host);
+    if (normalized) this.expectedMainFrameHosts.set(sessionOwner, normalized);
+    else this.expectedMainFrameHosts.delete(sessionOwner);
+  }
+
+  private expectedHostFor(request: { hostname: string }): boolean {
+    const host = normalizeCertHost(request.hostname);
+    if (!host) return false;
+    for (const expected of this.expectedMainFrameHosts.values()) {
+      if (expected === host) return true;
+    }
+    return false;
+  }
+
+  /** Records the user's decision for a pending certificate warning and unblocks the load. */
+  resolveCertificate(requestId: string, allow: boolean): boolean {
+    const pending = this.pendingCertificates.get(requestId);
+    if (!pending) return false;
+    this.pendingCertificates.delete(requestId);
+    if (allow) {
+      this.trustStore.add(pending.host);
+      pending.callback(0);
+    } else {
+      pending.callback(-3);
+    }
+    return true;
+  }
+
+  cancelPendingCertificate(requestId: string): void {
+    const pending = this.pendingCertificates.get(requestId);
+    if (!pending) return;
+    this.pendingCertificates.delete(requestId);
+    pending.callback(-3);
+  }
+
+  listTrustedCertificateHosts(): string[] { return this.trustStore.list(); }
+  addTrustedCertificateHost(host: string): boolean { return this.trustStore.add(host); }
+  removeTrustedCertificateHost(host: string): boolean { return this.trustStore.remove(host); }
+
 
   getDownloadManager(): DownloadManager {
     return this.downloadManager;
@@ -36,10 +109,26 @@ export class SessionManager {
       }
       return false;
     });
+    // Certificate handling: accept previously trusted main-frame hosts silently;
+    // otherwise ask the app (like a browser's "Proceed" interstitial). Only the
+    // host the app explicitly navigated to can prompt; every other certificate
+    // (sub-resources such as fonts, CDNs, APIs) uses Chromium's default verdict,
+    // so an invalid certificate here never blocks page assets or leaks prompts.
+    browserSession.setCertificateVerifyProc((request, callback) => {
+      // Electron reports "net::OK" (not the documented "OK"); errorCode is format-independent.
+      if (request.errorCode === 0) return callback(-3);
+      const host = normalizeCertHost(request.hostname);
+      if (host && this.trustStore.has(host)) return callback(0);
+      if (!this.certificatePromptHandler || !host || !this.expectedHostFor(request)) return callback(-3);
+      const requestId = randomUUID();
+      this.pendingCertificates.set(requestId, { callback, host });
+      this.certificatePromptHandler({ requestId, host, url: `https://${request.hostname}/` });
+    });
     this.downloadManager.attachSession(browserSession);
 
     // Automatically persist session cookies across restarts by giving them an expiration date
     browserSession.cookies.on('changed', (_event, cookie, _cause, removed) => {
+      this.socialCache.delete(profileId);
       if (removed) return;
       if (cookie.session) {
         const domain = cookie.domain || '';
@@ -65,6 +154,38 @@ export class SessionManager {
     return browserSession;
   }
 
+  async getSocialLogins(profileId: string): Promise<SocialAccountInfo[]> {
+    const sessionOwnerId = this.profiles.getSessionProfileId(profileId);
+    const cached = this.socialCache.get(sessionOwnerId);
+    const now = Date.now();
+    if (cached && now - cached.timestamp < 10000) {
+      return cached.accounts;
+    }
+    const browserSession = this.getSession(profileId);
+    const accounts = await detectSessionSocialLogins(browserSession);
+    this.socialCache.set(sessionOwnerId, { timestamp: now, accounts });
+    return accounts;
+  }
+
+  async getLoggedInServices(profileId: string): Promise<string[]> {
+    const accounts = await this.getSocialLogins(profileId);
+    return accounts.filter(a => a.loggedIn).map(a => a.platform);
+  }
+
+  getCachedLoggedInServices(profileId: string): string[] {
+    const sessionOwnerId = this.profiles.getSessionProfileId(profileId);
+    const cached = this.socialCache.get(sessionOwnerId);
+    if (!cached) return [];
+    return cached.accounts.filter(a => a.loggedIn).map(a => a.platform);
+  }
+
+  getCachedSocialLogins(profileId: string): SocialAccountInfo[] {
+    const sessionOwnerId = this.profiles.getSessionProfileId(profileId);
+    const cached = this.socialCache.get(sessionOwnerId);
+    return cached ? cached.accounts : [];
+  }
+
+
   async flush(): Promise<void> {
     await Promise.all([...this.sessions.values()].map(async browserSession => {
       browserSession.flushStorageData();
@@ -74,6 +195,7 @@ export class SessionManager {
 
   async clearProfile(profileId: string): Promise<void> {
     this.profiles.assertDeletable(profileId);
+    this.socialCache.delete(profileId);
     const browserSession = this.getPrivateSession(profileId);
     // Caller must dispose every tab belonging to this profile first.
     await browserSession.closeAllConnections();
@@ -84,3 +206,4 @@ export class SessionManager {
     this.sessions.delete(profileId);
   }
 }
+

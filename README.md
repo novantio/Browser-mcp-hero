@@ -4,6 +4,16 @@ Browser desktop Electron + TypeScript untuk fondasi runtime browser bersama manu
 
 **Versi 0.4:** AI Browser Runtime berbasis Electron + MCP Server (`@modelcontextprotocol/sdk`). Mendukung otomasi browser (navigate, click, type, screenshot, structured extraction), tab browser, profil persisten dengan isolasi data, Share sesi, popup OAuth Google/TikTok/Twitter native, Task Engine dengan ownership lock, dan alur **Human-in-the-loop Challenge Handling** (CAPTCHA/MFA/verifikasi manual).
 
+## Instalasi untuk AI agent
+
+Beri agent Anda (Claude Code, Codex, Cursor, Cline, Gemini CLI, opencode, ...) satu kalimat ini:
+
+```text
+Pasang Hero Browser mengikuti https://github.com/novantio/Browser-mcp-hero/blob/main/docs/INSTALL.md
+```
+
+📖 **[docs/INSTALL.md](docs/INSTALL.md)** berisi clone, build, pendaftaran MCP per client, verifikasi, cara pakai, dan tabel pemulihan error.
+
 ## Menjalankan
 
 Prasyarat: Node.js 22 atau lebih baru.
@@ -19,9 +29,15 @@ Pada Windows, setelah dependensi terpasang, klik dua kali **start.cmd** atau jal
 node scripts/start.cjs
 ```
 
-Launcher membangun TypeScript lalu membuka Electron. Aplikasi tidak memerlukan API key atau server pengembangan. Jika versi persisten sudah terbuka, peluncuran kedua akan memfokuskan jendela tersebut.
+Launcher membangun TypeScript lalu membuka Electron. `npm run restart` membangun ulang dan membuka ulang aplikasi yang sedang berjalan (agent bisa memakai tool `browser_restart_app`). Aplikasi tidak memerlukan API key atau server pengembangan. Jika versi persisten sudah terbuka, peluncuran kedua akan memfokuskan jendela tersebut.
 
 Wrapper npm global pada mesin pengembangan awal bermasalah. Launcher langsung di atas tetap dapat dipakai setelah dependensi terpasang.
+
+## Pembaruan engine otomatis
+
+Hero memeriksa rilis stabil Electron secara berkala dan menyiapkan Chromium baru di latar belakang. Panel **ENGINE BROWSER** menampilkan versi, progres, opsi otomatis, dan tombol periksa manual. Engine terverifikasi dipakai saat peluncuran berikutnya melalui **start.cmd** atau **npm start**, tanpa restart paksa atau penghapusan data login.
+
+Fitur ini mendukung Windows x64/arm64 saat aplikasi dijalankan dari proyek. Detail penyimpanan, verifikasi, MCP, dan batas distribusi installer tersedia di [panduan pembaruan engine](docs/engine-updates.md).
 
 ## Mulai memakai profil
 
@@ -129,7 +145,7 @@ Tes `tests/sharing.cjs` memverifikasi konfirmasi dibatalkan, berbagi pilihan/sem
 
 ## Model Context Protocol (MCP) & Integrasi Editor AI
 
-Hero Browser menyediakan **78 MCP Tools** yang dapat dihubungkan ke berbagai Code Editor dan AI Client favorit Anda (Cursor, VS Code Cline/Roo, Windsurf, Claude Desktop, Zed, Antigravity, dll).
+Hero Browser menyediakan **109 MCP tool**. Secara default hanya preset **core** (31 tool esensial) yang aktif supaya hemat token; agent bisa membuka preset `automation`, `data`, atau `all` dengan `browser_set_tool_preset`, atau set env `HERO_TOOL_PROFILE=all`. Tool-tool ini dapat dihubungkan ke berbagai Code Editor dan AI Client favorit Anda (Cursor, VS Code Cline/Roo, Windsurf, Claude Desktop, Zed, Antigravity, dll).
 
 📖 **[BACA PANDUAN LENGKAP INTEGRASI MULTI-EDITOR (docs/mcp-client-setup.md)](docs/mcp-client-setup.md)**
 
@@ -142,11 +158,13 @@ Tambahkan blok berikut ke konfigurasi MCP editor Anda:
   "mcpServers": {
     "hero-browser": {
       "command": "node",
-      "args": ["D:/project/node/2026/Browser-mcp-hero/dist/mcp/index.js"]
+      "args": ["/path/ke/hero-browser/dist/mcp/index.js"]
     }
   }
 }
 ```
+
+Claude Code: `claude mcp add hero-browser --scope user -- node /path/ke/hero-browser/dist/mcp/index.js`
 
 | Editor / AI Client | Lokasi File Konfigurasi |
 |---|---|
@@ -158,15 +176,19 @@ Tambahkan blok berikut ke konfigurasi MCP editor Anda:
 
 ### Alur Agen Otomasi & Web Data OS
 
-1. `browser_list_profiles` untuk memilih profil persisten.
-2. `browser_start_task({ profileId })` menghasilkan `taskId` dan mengunci sesi.
-3. Gunakan `browser_set_visibility({ taskId, visible: false })` jika ingin berjalan dalam mode Headless.
-4. **Human Intervention:** Jika bot menemui tantangan keamanan (Cloudflare Turnstile, reCAPTCHA, atau 2FA), panggil `browser_request_human_intervention`. Jendela Hero Browser akan seketika pop-up ke monitor fisik pengguna (*always-on-top*) agar pengguna dapat menyelesaikan verifikasi secara natural.
-5. **Multi-Strategy Data Extraction:** Panggil `data_extract_multistrategy` untuk ekstraksi data 6 layer otomatis (CDP Network response, embedded hydration JSON, JSON-LD, DOM, dan ARIA).
-6. **Selector Self-Healing:** Jika website target mengubah markup / class CSS, `data_heal_selector` otomatis memulihkan selector berdasarkan atribut semantik.
-7. `browser_complete_task({ taskId })` melepaskan kunci sesi setelah ekstraksi selesai.
+1. `browser_get_profile_logins` atau `browser_list_profiles` untuk mengecek profil mana yang sudah login ke platform target (TikTok, YouTube, Instagram, X, GitHub, dll.) melalui `loggedInServices`.
+2. `browser_start_task({ profileId })` menggunakan profil yang sudah login untuk menghasilkan `taskId` dan mengunci sesi.
+3. **Membaca informasi:** `browser_read_text({ taskId, url? })` mengubah halaman menjadi markdown ringkas ala lynx dengan tautan bernomor `[teks][n]`. Mode `fetch` mengunduh HTML dengan cookie profil tanpa menjalankan JavaScript, jadi halaman berat tidak membuat agent hang.
+4. **Berinteraksi:** `browser_observe` (elemen bernomor; tombol kembar diberi konteks `(dekat: ...)`), lalu `browser_act`, `browser_click` dengan `elementId`, atau `browser_fill_form`. `browser_act` menolak target ambigu dengan `ELEMENT_AMBIGUOUS` beserta kandidatnya, tidak menebak.
+5. **Pemulihan:** `PAGE_UNRESPONSIVE` → `browser_read_text` lalu `browser_reload({ force: true })`; cache usang → `browser_reload({ hard: true })`; aplikasi macet total → `browser_restart_app`.
+6. Gunakan `browser_set_visibility({ taskId, visible: false })` jika ingin berjalan dalam mode Headless.
+7. **Human Intervention & Deteksi CAPTCHA:** Hero Browser otomatis mendeteksi tantangan keamanan bot (TikTok SecSDK slider/rotate/2-objects puzzle, Cloudflare Turnstile, reCAPTCHA, hCaptcha, Arkose, Geetest, DataDome). Saat tantangan terdeteksi, tugas otomatis dialihkan ke manusia (`human_required`) atau agent dapat memanggil `browser_request_human_intervention`. Jendela Hero Browser akan memunculkan banner intervensi (puzzle/bot alert) agar pengguna dapat menyelesaikannya langsung di browser lalu klik "Lanjutkan".
 
-### Ringkasan Katalog 78 MCP Tool
+8. **Multi-Strategy Data Extraction:** Panggil `data_extract_multistrategy` untuk ekstraksi data 6 layer otomatis (CDP Network response, embedded hydration JSON, JSON-LD, DOM, dan ARIA).
+9. **Selector Self-Healing:** Jika website target mengubah markup / class CSS, `data_heal_selector` otomatis memulihkan selector berdasarkan atribut semantik.
+10. `browser_complete_task({ taskId })` melepaskan kunci sesi setelah ekstraksi selesai.
+
+### Ringkasan Katalog MCP Tool
 
 | Domain | Total | Contoh Tool Utama |
 |---|---|---|

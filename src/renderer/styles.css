@@ -798,3 +798,15 @@
 }
 
 
+
+.engine-update-panel { padding: 12px 0 16px; border-bottom: 1px solid #31435b; margin-bottom: 18px; }
+.engine-update-panel p { font-size: 12px; color: #a7b8cf; line-height: 1.6; overflow-wrap: anywhere; }
+.engine-auto-label { display:flex; align-items:center; gap:8px; font-size:12px; color:#c7d4e8; margin:12px 0; }
+.engine-auto-label input { width:16px; height:16px; flex:0 0 16px; margin:0; accent-color:#91b9ff; }
+.engine-update-panel progress { width:100%; margin-bottom:10px; accent-color:#91b9ff; }
+
+.cert-warning .error-symbol { color: #f59e0b; }
+.cert-warning strong { color: #fef3c7; overflow-wrap: anywhere; }
+.cert-actions { display:flex; gap:12px; margin-top:26px; flex-wrap:wrap; justify-content:center; }
+.ghost-button { background:transparent; border:1px solid var(--line); color:var(--text); border-radius:10px; padding:11px 20px; }
+.ghost-button:hover:not(:disabled) { background:var(--raised); }

@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 import type { BrowserAPI, BrowserState, HumanInterventionRequest, ActivityEvent } from '../shared/types';
 
 const api: BrowserAPI = {
+  engineCommand: action => ipcRenderer.invoke('browser:engine-command', action),
   getState: () => ipcRenderer.invoke('browser:state'),
   command: command => ipcRenderer.invoke('browser:command', command),
   setBounds: bounds => ipcRenderer.invoke('browser:bounds', bounds),

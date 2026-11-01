@@ -1,3 +1,4 @@
+import { execWithTimeout } from '../page-exec';
 import { createHash } from 'node:crypto';
 import type { WebContents } from 'electron';
 import type { ExtractionSpec, Json } from '../../shared/data-contracts';
@@ -59,7 +60,7 @@ export class CollectorEngine {
       }
 
       // 2. Cek apakah sudah di dasar halaman atau kontainer (end of feed)
-      const atBottom = await contents.executeJavaScript(`
+      const atBottom = await execWithTimeout(contents, `
         (() => {
           const rowSel = ${JSON.stringify(schema.rowSelector || '')};
           const target = rowSel ? document.querySelector(rowSel) : null;
@@ -92,7 +93,7 @@ export class CollectorEngine {
       }
 
       // 3. Scroll ke bawah (kontainer atau window + event wheel)
-      await contents.executeJavaScript(`
+      await execWithTimeout(contents, `
         (() => {
           const rowSel = ${JSON.stringify(schema.rowSelector || '')};
           const target = rowSel ? document.querySelector(rowSel) : null;

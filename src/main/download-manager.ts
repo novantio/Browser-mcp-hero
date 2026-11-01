@@ -25,15 +25,22 @@ export class DownloadManager {
     reject: (err: Error) => void;
   }> = [];
   private readonly downloadDir: string;
+  private readonly appDataDir: string;
 
   constructor(customDownloadDir?: string) {
     const appData = process.env.HERO_USER_DATA_DIR || app?.getPath('userData') || process.cwd();
+    this.appDataDir = appData;
     this.downloadDir = customDownloadDir || path.join(appData, 'Downloads');
     try {
       if (!existsSync(this.downloadDir)) {
         mkdirSync(this.downloadDir, { recursive: true });
       }
     } catch {}
+  }
+
+  /** App data directory shared by persisted stores (profiles, trust, downloads). */
+  userDataDirectory(): string {
+    return this.appDataDir;
   }
 
   getDownloadDirectory(): string {

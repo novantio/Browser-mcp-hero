@@ -63,6 +63,16 @@
         </div>
         <div class="welcome-footer"><span><span class="status-dot"></span> Browser siap digunakan</span><span>Manusia yang memegang kendali.</span></div>
       </section>
+      <section id="cert-warning" class="page-error cert-warning" hidden>
+        <span class="error-symbol" aria-hidden="true">⚠</span>
+        <p class="eyebrow">KONEKSI TIDAK PRIVAT</p>
+        <h1>Sertifikat situs ini tidak valid.</h1>
+        <p>Koneksi ke <strong id="cert-host"></strong> tidak dapat diverifikasi, mirip pesan “Your connection is not private” di Chrome. Lanjutkan hanya jika Anda memercayai jaringan ini (mis. server internal).</p>
+        <div class="cert-actions">
+          <button id="cert-safe" class="ghost-button">Kembali ke aman</button>
+          <button id="cert-proceed" class="primary-button">Lanjutkan (tidak aman)</button>
+        </div>
+      </section>
       <section id="page-error" class="page-error" hidden>
         <span class="error-symbol" aria-hidden="true">↯</span>
         <p class="eyebrow">KONEKSI TERHENTI</p>
@@ -106,6 +116,15 @@
           <p id="profile-feedback" role="status" hidden></p>
         </div>
         <div class="section-divider"></div>
+        <section class="engine-update-panel" aria-labelledby="engine-update-title">
+          <div class="section-label" id="engine-update-title">ENGINE BROWSER</div>
+          <p id="engine-versions">Membaca versi engine…</p>
+          <label class="engine-auto-label"><input type="checkbox" id="engine-auto"> Unduh pembaruan stabil otomatis</label>
+          <p id="engine-update-message" role="status">Pembaruan dipakai pada peluncuran berikutnya.</p>
+          <progress id="engine-update-progress" max="100" hidden aria-label="Progres unduhan engine"></progress>
+          <button id="engine-check" class="action-btn-full" type="button">Periksa &amp; unduh pembaruan</button>
+        </section>
+
         <div class="section-label">AI BROWSER RUNTIME <span id="mcp-status-badge" class="runtime-badge">MENGHUBUNGKAN</span></div>
         <div class="ai-runtime-panel">
           <div class="runtime-status-bar">

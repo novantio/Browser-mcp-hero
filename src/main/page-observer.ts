@@ -19,6 +19,7 @@ export function observePage(options: { maxLength?: number } = {}): {
     options?: string[];
     selected?: string;
     href?: string;
+    context?: string;
   }>;
   text: string;
 } {
@@ -129,8 +130,10 @@ export function observePage(options: { maxLength?: number } = {}): {
     options?: string[];
     selected?: string;
     href?: string;
+    context?: string;
   }> = [];
 
+  const nodes: Element[] = [];
   let nextId = 1;
   const lines: string[] = [];
 
@@ -165,13 +168,23 @@ export function observePage(options: { maxLength?: number } = {}): {
     } else if (el instanceof HTMLInputElement && ['button', 'submit', 'reset'].includes(el.type)) {
       name = el.value || '';
     } else if (el.id) {
-      const labelFor = document.querySelector(`label[for="${el.id}"]`);
+      const labelFor = document.querySelector(`label[for="${CSS.escape(el.id)}"]`);
       if (labelFor) name = (labelFor.textContent || '').trim();
     }
-    if (!name && (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) {
-      name = el.placeholder || el.name || '';
+    const isField = el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement;
+    if (!name && isField) {
+      // <label>Kota <select>…</select></label>: use the label's own text, not the options.
+      const wrapping = el.closest('label');
+      if (wrapping) {
+        name = Array.from(wrapping.childNodes)
+          .filter(node => node !== el && !(node instanceof Element && node.matches('input, select, textarea')))
+          .map(node => node.textContent || '').join(' ').trim();
+      }
     }
-    if (!name) {
+    if (!name && isField) {
+      name = (el as HTMLInputElement).placeholder || (el as HTMLInputElement).name || '';
+    }
+    if (!name && !(el instanceof HTMLSelectElement)) {
       name = ((el instanceof HTMLElement ? el.innerText : el.textContent) || '').trim();
     }
     name = name.replace(/\s+/g, ' ').slice(0, 100);
@@ -209,7 +222,9 @@ export function observePage(options: { maxLength?: number } = {}): {
       item.options = opts.slice(0, 30);
       const selected = el.selectedOptions[0]?.text || el.value || '';
       item.selected = selected;
-      outlineParts.push(`(selected: "${selected}", options: ${opts.length})`);
+      outlineParts.push(opts.length <= 10
+        ? `(selected: "${selected}", options: ${opts.map(o => `"${o}"`).join(', ')})`
+        : `(selected: "${selected}", options: ${opts.length})`);
       if (el.disabled) item.disabled = true;
     } else if (el instanceof HTMLAnchorElement && el.href) {
       try {
@@ -231,8 +246,28 @@ export function observePage(options: { maxLength?: number } = {}): {
     }
 
     elements.push(item);
+    nodes.push(el);
     lines.push(outlineParts.join(' '));
   }
+
+  // Identical controls ("Add", "Delete", "Reply") are useless to an agent without the
+  // row they belong to, so give each duplicate a short snippet of its surrounding text.
+  const counts = new Map<string, number>();
+  for (const item of elements) counts.set(item.role + '\u0000' + item.name, (counts.get(item.role + '\u0000' + item.name) || 0) + 1);
+  elements.forEach((item, index) => {
+    if ((counts.get(item.role + '\u0000' + item.name) || 0) < 2) return;
+    for (let parent = nodes[index]!.parentElement, depth = 0; parent && parent !== document.body && depth < 5; parent = parent.parentElement, depth++) {
+      const text = ((parent as HTMLElement).innerText || parent.textContent || '').replace(/\s+/g, ' ').trim();
+      if (text.length > item.name.length + 2) {
+        const context = text.replace(item.name, '').replace(/\s+/g, ' ').trim().slice(0, 80);
+        if (context && text.length <= 400) {
+          item.context = context;
+          lines[index] += ` (dekat: "${context}")`;
+        }
+        break;
+      }
+    }
+  });
 
   const maxLen = Math.min(Math.max(options.maxLength ?? 30000, 1000), 100000);
   const header = `URL: ${url}\nTitle: ${title}\nStatus: ${loading ? 'Loading...' : 'Ready'}\nInteractive elements (${elements.length}):\n`;

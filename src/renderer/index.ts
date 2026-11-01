@@ -88,6 +88,19 @@ function reportBounds(): void {
 }
 
 function render(state: BrowserState): void {
+  if (state.engineUpdate) {
+    const engine = state.engineUpdate;
+    element('engine-versions').textContent = 'Chromium ' + engine.currentChromium + ' · Electron ' + engine.currentElectron;
+    element<HTMLInputElement>('engine-auto').checked = engine.enabled;
+    element<HTMLInputElement>('engine-auto').disabled = engine.status === 'unsupported';
+    element('engine-update-message').textContent = engine.message + (engine.readyElectron ? ' Electron ' + engine.readyElectron + '.' : '');
+    const busy = ['checking', 'downloading', 'verifying'].includes(engine.status);
+    element<HTMLButtonElement>('engine-check').disabled = busy || engine.status === 'unsupported';
+    const progress = element<HTMLProgressElement>('engine-update-progress');
+    progress.hidden = !busy;
+    if (engine.progress === null) progress.removeAttribute('value'); else progress.value = engine.progress;
+  }
+
   const ready = state.mcpStatus === 'ready';
   element('mcp-status-badge').textContent = ready ? 'MCP AKTIF' : state.mcpStatus === 'failed' ? 'KONEKSI GAGAL' : 'MENGHUBUNGKAN';
   element('mcp-status-badge').classList.toggle('active', ready);
@@ -109,16 +122,20 @@ function render(state: BrowserState): void {
   const previousProfileId = current?.activeProfileId;
   current = state;
   const profileSelect = element<HTMLSelectElement>('profile-select');
-  const optionKey = state.profiles.map(profile => profile.id + ':' + profile.name).join('|');
+  const optionKey = state.profiles.map(profile => profile.id + ':' + profile.name + ':' + (profile.loggedInServices || []).join(',')).join('|');
   if (profileSelect.dataset.options !== optionKey) {
     profileSelect.replaceChildren(...state.profiles.map(profile => {
       const option = document.createElement('option');
       option.value = profile.id;
-      option.textContent = profile.name;
+      const services = profile.loggedInServices && profile.loggedInServices.length
+        ? ` [${profile.loggedInServices.map(s => s.charAt(0).toUpperCase() + s.slice(1)).join(', ')}]`
+        : '';
+      option.textContent = profile.name + services;
       return option;
     }));
     profileSelect.dataset.options = optionKey;
   }
+
   profileSelect.value = state.activeProfileId;
   const profile = state.profiles.find(profile => profile.id === state.activeProfileId);
   element('active-profile-name').textContent = profile?.name ?? 'Profil';
@@ -200,11 +217,14 @@ function render(state: BrowserState): void {
   element('reload').textContent = active.loading ? '×' : '↻';
   element('reload').setAttribute('aria-label', active.loading ? 'Hentikan pemuatan' : 'Muat ulang');
   element('welcome').hidden = Boolean(active.url);
-  element('page-error').hidden = !active.error;
+  const certWarning = active.certificateWarning ?? null;
+  element('cert-warning').hidden = !certWarning;
+  if (certWarning) element('cert-host').textContent = certWarning.host;
+  element('page-error').hidden = !active.error || Boolean(certWarning);
   element('page-error-message').textContent = active.error ?? '';
   element('loading-line').hidden = !active.loading;
   element('tab-count').textContent = String(state.tabs.length);
-  element('page-status').textContent = active.error ? 'Halaman gagal dimuat' : active.loading ? 'Memuat halaman…' : active.url || 'Tab baru';
+  element('page-status').textContent = certWarning ? 'Sertifikat tidak valid' : active.error ? 'Halaman gagal dimuat' : active.loading ? 'Memuat halaman…' : active.url || 'Tab baru';
   element('address-icon').textContent = active.url.startsWith('https:') ? '◇' : active.url ? 'ⓘ' : '⌕';
   reportBounds();
 }
@@ -217,6 +237,8 @@ element('reload').addEventListener('click', () => {
   void command({ action: active?.loading ? 'stop' : 'reload' });
 });
 element('retry').addEventListener('click', () => { void command({ action: 'reload' }); });
+element('cert-proceed').addEventListener('click', () => { void command({ action: 'certificate-response', allow: true }); });
+element('cert-safe').addEventListener('click', () => { void command({ action: 'certificate-response', allow: false }); });
 element('address-form').addEventListener('submit', event => {
   event.preventDefault();
   address.blur();
@@ -300,6 +322,9 @@ if (banner && bannerButton) {
   window.browser.onHumanIntervention(req => {
     if (req) {
       activeInterventionTaskId = req.taskId;
+      const isCaptcha = (req.reason || '').toLowerCase().includes('captcha') || (req.message || '').toLowerCase().includes('captcha');
+      const icon = banner.querySelector('.intervention-icon') as HTMLElement | null;
+      if (icon) icon.textContent = isCaptcha ? '🧩' : '🤖';
       if (bannerTitle) bannerTitle.textContent = req.reason || 'Tindakan Manusia Diperlukan';
       if (bannerMessage) bannerMessage.textContent = req.message || 'Selesaikan tindakan di browser lalu klik tombol lanjutkan.';
       banner.hidden = false;
@@ -309,6 +334,7 @@ if (banner && bannerButton) {
     }
     reportBounds();
   });
+
 }
 
 new ResizeObserver(reportBounds).observe(surface);
@@ -515,3 +541,11 @@ function setupMcpConfigModal(): void {
   });
 }
 
+
+element('engine-check').addEventListener('click', () => {
+  void window.browser.engineCommand('check').then(engineUpdate => { if (current) render({ ...current, engineUpdate }); }).catch(() => showError('Pembaruan belum dapat diperiksa.'));
+});
+element('engine-auto').addEventListener('change', () => {
+  const action = element<HTMLInputElement>('engine-auto').checked ? 'enable' : 'disable';
+  void window.browser.engineCommand(action).then(engineUpdate => { if (current) render({ ...current, engineUpdate }); }).catch(() => showError('Pengaturan pembaruan belum tersimpan.'));
+});

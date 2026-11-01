@@ -34,6 +34,17 @@ export function isPopupWindow(details: WindowOpenDetails): boolean {
   return false;
 }
 
+function prefersHttp(value: string): boolean {
+  const host = value.split(/[/?#]/, 1)[0]!.replace(/:\d+$/, '').toLowerCase();
+  if (host === 'localhost' || host.endsWith('.localhost')) return true;
+  if (/\.local$/.test(host)) return true;
+  if (/^\[.*\]$/.test(host)) return host === '[::1]';
+  const octets = host.split('.');
+  if (octets.length !== 4 || !octets.every(part => /^\d{1,3}$/.test(part) && Number(part) <= 255)) return false;
+  const [a, b] = octets.map(Number) as [number, number, number, number];
+  return a === 127 || a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 169 && b === 254);
+}
+
 export function resolveAddress(value: string): string {
   const input = value.trim();
   if (!input || input.length > 8192) throw new Error('Masukkan alamat atau kata pencarian yang valid.');
@@ -43,11 +54,35 @@ export function resolveAddress(value: string): string {
     return new URL(input).href;
   }
   if (hostLike && !/\s/.test(input)) {
-    const url = `${/^(localhost|127\.0\.0\.1|\[::1\])(:|\/|$)/i.test(input) ? 'http' : 'https'}://${input}`;
+    const url = `${prefersHttp(input) ? 'http' : 'https'}://${input}`;
     if (!isWebUrl(url)) throw new Error('Alamat tidak valid.');
     return new URL(url).href;
   }
   return `https://www.google.com/search?q=${encodeURIComponent(input)}`;
+}
+
+export function alternateScheme(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol === 'https:') parsed.protocol = 'http:';
+    else if (parsed.protocol === 'http:') parsed.protocol = 'https:';
+    else return null;
+    return parsed.href;
+  } catch { return null; }
+}
+
+/** Normalizes a certificate host to lowercase without port or IPv6 brackets. */
+export function normalizeCertHost(host: string): string {
+  let entry = (host || '').trim().toLowerCase();
+  if (!entry) return '';
+  if (entry.startsWith('[')) {
+    // Bracketed IPv6 literal, optionally followed by a port: [::1]:8443
+    entry = entry.slice(1).split(']')[0] ?? '';
+  } else if (entry.split(':').length === 2) {
+    // A single colon means host:port (a bare IPv6 host has 2+ colons).
+    entry = entry.replace(/:\d+$/, '');
+  }
+  return entry.replace(/^\[|\]$/g, '');
 }
 
 export function parseCommand(value: unknown): BrowserCommand {
@@ -79,6 +114,9 @@ export function parseCommand(value: unknown): BrowserCommand {
   }
   if (data.action === 'resume-human-intervention' && typeof data.taskId === 'string' && data.taskId.length <= 100 && keys.length === 2) {
     return { action: 'resume-human-intervention', taskId: data.taskId };
+  }
+  if (data.action === 'certificate-response' && typeof data.allow === 'boolean' && keys.length === 2) {
+    return { action: 'certificate-response', allow: data.allow };
   }
   throw new Error('Perintah tidak dikenal atau argumen tidak valid.');
 }

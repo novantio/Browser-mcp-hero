@@ -9,16 +9,19 @@ import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { readSafePage } from './page-snapshot';
 import { randomUUID } from 'node:crypto';
-import { BrowserWindow, WebContentsView } from 'electron';
+import { BrowserWindow, WebContentsView, nativeImage } from 'electron';
 import { ProfileManager } from './profile-manager';
 import { SessionManager } from './session-manager';
-import { isPopupWindow, isWebUrl, resolveAddress } from '../shared/navigation';
+import type { CertificatePrompt } from './session-manager';
+import { alternateScheme, isPopupWindow, isWebUrl, resolveAddress } from '../shared/navigation';
 import type { BrowserCommand, BrowserState, BrowserTab, ViewBounds } from '../shared/types';
 import type { ExtractionSpec, Json } from '../shared/data-contracts';
 import { convert, setPath } from './data/processing';
 import { NetworkIntelligence } from './data/network-intelligence';
 import { ConsoleMonitor } from './console-monitor';
 import { STEALTH_SCRIPT } from './stealth';
+import { htmlToMarkdown } from './html-to-markdown';
+import { execWithTimeout } from './page-exec';
 
 export interface ExpectCondition { selector?: string; text?: string; url?: string; timeoutMs?: number }
 interface TabEntry { state: BrowserTab; view: WebContentsView | null; profileId: string }
@@ -37,8 +40,56 @@ export class BrowserManager {
 
   constructor(private readonly window: BrowserWindow, private readonly publish: (state: BrowserState) => void,
       private readonly profiles: ProfileManager, private readonly sessions: SessionManager) {
+    this.sessions.onCertificatePrompt(prompt => this.handleCertificatePrompt(prompt));
     this.newTab();
   }
+
+  private handleCertificatePrompt(prompt: CertificatePrompt): void {
+    // Attach the warning to the tab that is loading this host, not blindly to the active tab.
+    const hostOf = (url: string) => { try { return new URL(url).hostname.toLowerCase(); } catch { return ''; } };
+    const candidates = [...this.tabs.values()].filter(entry => hostOf(entry.state.url) === prompt.host);
+    const tab = candidates.find(entry => entry.state.id === this.activeTabId) ?? candidates[0] ?? this.tabs.get(this.activeTabId);
+    if (!tab) { this.sessions.cancelPendingCertificate(prompt.requestId); return; }
+    if (tab.state.certificateWarning) this.sessions.cancelPendingCertificate(tab.state.certificateWarning.requestId);
+    tab.state.certificateWarning = { requestId: prompt.requestId, host: prompt.host, url: prompt.url };
+    tab.state.loading = false;
+    tab.state.error = null;
+    this.emit();
+  }
+
+  /** Applies the user's certificate decision for the active tab and reloads when allowed. */
+  respondToCertificatePrompt(allow: boolean): void {
+    const tab = this.active();
+    const warning = tab.state.certificateWarning;
+    if (!warning) return;
+    tab.state.certificateWarning = null;
+    const resolved = this.sessions.resolveCertificate(warning.requestId, allow);
+    if (resolved && allow) {
+      const target = this.tabs.get(this.activeTabId);
+      if (target) {
+        const view = target.view ?? this.createView(target);
+        void this.loadWithSchemeFallback(target, view.webContents, warning.url).catch(() => {});
+      }
+    } else {
+      this.emit();
+    }
+  }
+
+  private run(contents: Electron.WebContents, code: string, timeoutMs = 10000): Promise<any> {
+    return execWithTimeout(contents, code, timeoutMs);
+  }
+
+  private clearCertificateWarning(tab: TabEntry): void {
+    const warning = tab.state.certificateWarning;
+    if (!warning) return;
+    tab.state.certificateWarning = null;
+    this.sessions.cancelPendingCertificate(warning.requestId);
+  }
+
+  getSessions(): SessionManager {
+    return this.sessions;
+  }
+
 
   setNetworkIntelligence(net: NetworkIntelligence): void {
     this.network = net;
@@ -52,9 +103,17 @@ export class BrowserManager {
   snapshot(): BrowserState {
     return {
       tabs: [...this.tabs.values()].filter(tab => tab.profileId === this.profiles.activeProfileId).map(tab => ({ ...tab.state })),
-      activeTabId: this.activeTabId, profiles: this.profiles.listProfiles(), activeProfileId: this.profiles.activeProfileId, persistent: true,
+      activeTabId: this.activeTabId,
+      profiles: this.profiles.listProfiles().map(p => ({
+        ...p,
+        loggedInServices: this.sessions.getCachedLoggedInServices(p.id),
+        socialAccounts: this.sessions.getCachedSocialLogins(p.id),
+      })),
+      activeProfileId: this.profiles.activeProfileId,
+      persistent: true,
     };
   }
+
 
   private emit(): void {
     if (!this.disposed) this.publish(this.snapshot());
@@ -122,6 +181,7 @@ export class BrowserManager {
       if (!isMainFrame || !isWebUrl(url)) return;
       tab.state.url = url;
       tab.state.error = null;
+      this.clearCertificateWarning(tab);
       this.layout();
       update();
     });
@@ -241,18 +301,101 @@ export class BrowserManager {
     return view;
   }
 
+  async navigateToUrl(input: string, signal?: AbortSignal): Promise<string> {
+    const url = resolveAddress(input);
+    const tab = this.active();
+    const view = tab.view ?? this.createView(tab);
+
+    const finalUrl = await this.loadWithSchemeFallback(tab, view.webContents, url, signal);
+    if (!tab.state.certificateWarning) await this.waitForPageReady(view.webContents, signal);
+    return finalUrl;
+  }
+
+  /**
+   * Loads a URL and, if the main frame fails to load (e.g. an https:// URL on a
+   * plain-HTTP server, or vice versa), retries once with the opposite scheme so
+   * hosts that don't match the guessed scheme are still reachable.
+   */
+  private async loadWithSchemeFallback(
+    tab: TabEntry,
+    contents: Electron.WebContents,
+    url: string,
+    signal?: AbortSignal
+  ): Promise<string> {
+    let attemptUrl = url;
+    // A new navigation supersedes any unanswered certificate warning on this tab.
+    this.clearCertificateWarning(tab);
+    for (let attempt = 0; attempt < 2; attempt++) {
+      tab.state.url = attemptUrl;
+      try { tab.state.title = new URL(attemptUrl).hostname; } catch { /* keep prior title */ }
+      tab.state.error = null;
+      tab.state.loading = true;
+      // Only the host we intend to load may raise a certificate approval prompt.
+      this.sessions.expectMainFrameHost(tab.profileId, new URL(attemptUrl).hostname);
+      this.layout();
+      this.emit();
+
+      const outcome = await this.loadAttempt(tab, contents, attemptUrl, signal);
+      if (outcome !== 'failed') return attemptUrl;
+
+      const alternate = alternateScheme(attemptUrl);
+      if (!alternate || signal?.aborted) return attemptUrl;
+      attemptUrl = alternate;
+    }
+    return attemptUrl;
+  }
+
+  /**
+   * Resolves 'failed' when the main frame reports a load failure (excluding
+   * ERR_ABORTED), or 'settled' on success / when a certificate warning pauses the
+   * load so the caller can return promptly instead of waiting for the timeout.
+   */
+  private loadAttempt(tab: TabEntry, contents: Electron.WebContents, url: string, signal?: AbortSignal): Promise<'failed' | 'settled'> {
+    return new Promise<'failed' | 'settled'>(resolve => {
+      let settled = false;
+      const onFail = (_event: Electron.Event, code: number, _description: string, _validatedUrl: string, isMainFrame: boolean) => {
+        if (!isMainFrame || code === -3) return;
+        finish('failed');
+      };
+      const finish = (outcome: 'failed' | 'settled') => {
+        if (settled) return;
+        settled = true;
+        contents.off('did-fail-load', onFail);
+        clearInterval(poll);
+        resolve(outcome);
+      };
+      const poll = setInterval(() => {
+        if (tab.state.certificateWarning || signal?.aborted) finish('settled');
+      }, 100);
+      contents.on('did-fail-load', onFail);
+      contents.loadURL(url).then(() => finish('settled')).catch(() => finish('settled'));
+      delay(15000, undefined, { signal }).then(() => finish('settled')).catch(() => finish('settled'));
+    });
+  }
+
+  async waitForPageReady(contents: Electron.WebContents, signal?: AbortSignal): Promise<void> {
+    if (contents.isDestroyed() || contents.isCrashed()) return;
+    const start = Date.now();
+    while (Date.now() - start < 4000) {
+      signal?.throwIfAborted();
+      if (contents.isDestroyed()) return;
+      try {
+        const readyState = await this.run(contents, 'document.readyState', 1500).catch(() => null);
+        if (readyState === 'interactive' || readyState === 'complete') {
+          await delay(100, undefined, { signal }).catch(() => {});
+          return;
+        }
+      } catch {}
+      await delay(100, undefined, { signal }).catch(() => {});
+    }
+  }
+
   private navigate(input: string): void {
     const url = resolveAddress(input);
     const tab = this.active();
-    tab.state.url = url;
-    tab.state.title = new URL(url).hostname;
-    tab.state.error = null;
-    tab.state.loading = true;
     const view = tab.view ?? this.createView(tab);
-    this.layout();
-    this.emit();
     // Load asynchronously so stop, tab switching and further navigation stay responsive.
-    void view.webContents.loadURL(url).catch(() => { /* did-fail-load renders a safe error. */ });
+    void this.loadWithSchemeFallback(tab, view.webContents, url).catch(() => { /* did-fail-load renders a safe error. */ });
   }
 
   private closeTab(id: string): void {
@@ -289,6 +432,7 @@ export class BrowserManager {
         this.activeTabs.set(this.profiles.activeProfileId, command.tabId);
         this.layout(); this.emit(); return;
       case 'navigate': this.navigate(command.input); return;
+      case 'certificate-response': this.respondToCertificatePrompt(command.allow); return;
       case 'home': this.newTab(); this.focusAddress(); return;
     }
     const tab = this.active();
@@ -302,6 +446,82 @@ export class BrowserManager {
       contents.reload();
     }
     if (command.action === 'stop') contents.stop();
+  }
+
+  /**
+   * Reloads the active tab. `hard` bypasses the cache; `force` recovers a tab whose
+   * renderer is hung or crashed by killing the renderer process and loading the URL again.
+   */
+  async reloadTab(options: { hard?: boolean; force?: boolean } = {}, signal?: AbortSignal): Promise<{ ok: true; url: string; recovered: boolean }> {
+    const tab = this.active();
+    const view = tab.view ?? this.createView(tab);
+    const contents = view.webContents;
+    const url = tab.state.url || contents.getURL();
+    tab.state.error = null;
+    this.clearCertificateWarning(tab);
+    let recovered = false;
+    if (options.force || contents.isCrashed()) {
+      if (!contents.isCrashed()) {
+        const gone = new Promise<void>(resolve => contents.once('render-process-gone', () => resolve()));
+        contents.forcefullyCrashRenderer();
+        await Promise.race([gone, delay(3000)]);
+      }
+      recovered = true;
+      if (url && isWebUrl(url)) await this.loadWithSchemeFallback(tab, contents, url, signal);
+      else contents.reload();
+    } else if (options.hard) {
+      contents.reloadIgnoringCache();
+    } else {
+      contents.reload();
+    }
+    this.layout();
+    if (!tab.state.certificateWarning) await this.waitForPageReady(contents, signal);
+    return { ok: true, url: tab.state.url || url, recovered };
+  }
+
+  /**
+   * Lynx-style text reader. `fetch` downloads the URL with the task profile's cookies and
+   * converts the raw HTML without running page JavaScript, so heavy or hung pages can
+   * still be read. `live` converts the active tab's current DOM (useful for SPAs) and
+   * falls back to `fetch` when the page does not respond.
+   */
+  async readText(options: { url?: string; source?: 'auto' | 'fetch' | 'live'; maxLength?: number; mainOnly?: boolean; includeLinks?: boolean } = {}, signal?: AbortSignal): Promise<{
+    url: string; title: string; status?: number; source: 'fetch' | 'live'; markdown: string; links: number; truncated: boolean;
+  }> {
+    const tab = this.active();
+    const target = options.url ? resolveAddress(options.url) : tab.state.url;
+    if (!target || !isWebUrl(target)) throw new RpcError('INVALID_INPUT', 'Berikan url http(s), atau buka halaman terlebih dahulu.');
+    const convertOptions = { baseUrl: target, maxLength: options.maxLength, mainOnly: options.mainOnly, includeLinks: options.includeLinks };
+    const wantLive = options.source === 'live' || (options.source !== 'fetch' && !options.url);
+    if (wantLive && tab.view && !tab.view.webContents.isDestroyed()) {
+      try {
+        const contents = tab.view.webContents;
+        const html = String(await this.run(contents, 'document.documentElement ? document.documentElement.outerHTML : ""', 4000));
+        return { url: contents.getURL() || target, source: 'live', ...htmlToMarkdown(html, { ...convertOptions, baseUrl: contents.getURL() || target }) };
+      } catch (error) {
+        if (options.source === 'live') throw error;
+        // Page is busy or crashed: read the same URL without its JavaScript instead.
+      }
+    }
+
+    const response = await this.sessions.getSession(tab.profileId).fetch(target, {
+      redirect: 'follow',
+      headers: { Accept: 'text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.5' },
+      signal: AbortSignal.any([AbortSignal.timeout(20000), ...(signal ? [signal] : [])]),
+    }).catch(() => { throw new RpcError('FETCH_FAILED', 'Halaman tidak dapat diunduh. Periksa alamat dan koneksi.'); });
+    const contentType = response.headers.get('content-type') || '';
+    const buffer = Buffer.from(await response.arrayBuffer());
+    if (buffer.byteLength > 8_000_000) throw new RpcError('OUTPUT_LIMIT', 'Halaman terlalu besar untuk dibaca sebagai teks.');
+    const charset = /charset=([^;\s]+)/i.exec(contentType)?.[1]
+      || /<meta[^>]+charset=["']?([a-z0-9_-]+)/i.exec(buffer.subarray(0, 4096).toString('latin1'))?.[1] || 'utf-8';
+    let body: string;
+    try { body = new TextDecoder(charset.toLowerCase()).decode(buffer); } catch { body = buffer.toString('utf8'); }
+    const finalUrl = response.url || target;
+    if (!/html|xml/i.test(contentType) && !/^\s*</.test(body)) {
+      const maxLength = Math.min(Math.max(options.maxLength ?? 20000, 200), 200000);
+      return { url: finalUrl, title: '', status: response.status, source: 'fetch', markdown: body.slice(0, maxLength), links: 0, truncated: body.length > maxLength };
+    }
+    return { url: finalUrl, status: response.status, source: 'fetch', ...htmlToMarkdown(body, { ...convertOptions, baseUrl: finalUrl }) };
   }
 
   createProfile(name: string): void {
@@ -450,13 +670,20 @@ export class BrowserManager {
     });
 
     try {
-      const capturePromise = contents.capturePage().catch(err => {
-        const msg = String(err && (err as any).message ? (err as any).message : err);
-        if (msg.includes('UnknownVizError') || msg.includes('surface')) {
-          throw new RpcError('SCREENSHOT_UNAVAILABLE', 'Screenshot tidak tersedia karena permukaan render tidak aktif.');
+      const capturePromise = (async () => {
+        try {
+          const img = await contents.capturePage();
+          const sz = img.getSize();
+          if (sz.width > 0 && sz.height > 0) return img;
+          return await this.captureWithCdp(contents);
+        } catch (err) {
+          const msg = String(err && (err as any).message ? (err as any).message : err);
+          if (msg.includes('UnknownVizError') || msg.includes('surface') || msg.includes('render') || msg.includes('failed')) {
+            return await this.captureWithCdp(contents);
+          }
+          throw new RpcError('SCREENSHOT_NOT_READY', 'Gagal mengambil gambar tampilan halaman.');
         }
-        throw new RpcError('SCREENSHOT_NOT_READY', 'Gagal mengambil gambar tampilan halaman.');
-      });
+      })();
       let image = await Promise.race([capturePromise, timeoutPromise]);
       const size = image.getSize();
       if (!size.width || !size.height) {
@@ -471,7 +698,7 @@ export class BrowserManager {
         const h = Math.min(Math.max(1, reg.height), size.height - y);
         image = image.crop({ x, y, width: w, height: h });
       } else if (options?.elementId !== undefined || options?.selector) {
-        const box = (await contents.executeJavaScript(
+        const box = (await this.run(contents, 
           '(' + getElementBoundingBox.toString() + ')(' + JSON.stringify({ elementId: options.elementId, selector: options.selector }) + ')'
         )) as { x: number; y: number; width: number; height: number } | null;
 
@@ -488,6 +715,30 @@ export class BrowserManager {
       return image.toPNG().toString('base64');
     } finally {
       if (timer) clearTimeout(timer);
+    }
+  }
+
+  private async captureWithCdp(contents: Electron.WebContents): Promise<Electron.NativeImage> {
+    if (!contents.debugger.isAttached()) {
+      try { contents.debugger.attach('1.3'); } catch {}
+    }
+    if (!contents.debugger.isAttached()) {
+      throw new RpcError('SCREENSHOT_UNAVAILABLE', 'Screenshot tidak tersedia karena permukaan render dan debugger CDP tidak aktif.');
+    }
+    try {
+      const result = (await contents.debugger.sendCommand('Page.captureScreenshot', {
+        format: 'png',
+        fromSurface: false,
+        captureBeyondViewport: false,
+      })) as { data?: string };
+
+      if (!result?.data) {
+        throw new RpcError('SCREENSHOT_NOT_READY', 'Hasil screenshot CDP kosong.');
+      }
+      return nativeImage.createFromBuffer(Buffer.from(result.data, 'base64'));
+    } catch (err: any) {
+      if (err instanceof RpcError) throw err;
+      throw new RpcError('SCREENSHOT_UNAVAILABLE', 'Screenshot tidak tersedia: ' + (err?.message || 'CDP render gagal.'));
     }
   }
 
@@ -509,7 +760,7 @@ export class BrowserManager {
       }
 
       if (urlMatched) {
-        const domMatched = await contents.executeJavaScript(`
+        const domMatched = await this.run(contents, `
           (() => {
             if (${JSON.stringify(expect.selector || '')}) {
               if (!document.querySelector(${JSON.stringify(expect.selector || '')})) return false;
@@ -531,26 +782,51 @@ export class BrowserManager {
     return false;
   }
 
-  async observe(options: { maxLength?: number } = {}): Promise<ReturnType<typeof observePage>> {
+  async observe(options: { maxLength?: number; format?: 'text' | 'json' | 'both' } = {}): Promise<Omit<ReturnType<typeof observePage>, 'elements'> & { elements?: ReturnType<typeof observePage>['elements'] }> {
     const contents = this.getActiveWebContents();
-    const result = await contents.executeJavaScript(
-      '(' + observePage.toString() + ')(' + JSON.stringify(options) + ')'
-    );
-    return result as ReturnType<typeof observePage>;
+    const challenge = await detectPageChallenge(contents);
+    const result = (await this.run(contents,
+      '(' + observePage.toString() + ')(' + JSON.stringify({ maxLength: options.maxLength }) + ')'
+    )) as Omit<ReturnType<typeof observePage>, 'elements'> & { elements?: ReturnType<typeof observePage>['elements'] };
+    // The outline in `text` already carries every element; sending both doubles the tokens.
+    const format = options.format ?? 'text';
+    if (format === 'text') delete result.elements;
+    if (format === 'json') result.text = result.text.split('\n').slice(0, 4).join('\n');
+
+    if (challenge.detected && result && typeof result.text === 'string') {
+      const banner = `[⚠️ SECURITY CHALLENGE / CAPTCHA TERDETEKSI: ${challenge.provider || 'bot challenge'} (${challenge.details || ''}). JANGAN mengklik elemen captcha secara acak! Panggil tool 'browser_request_human_intervention' sekarang agar pengguna manusia dapat menyelesaikan verifikasi ini di browser.]\n\n`;
+      result.text = banner + result.text;
+    }
+    return result;
   }
+
+
 
   async click(target: { elementId?: number; selector?: string; text?: string; expect?: ExpectCondition; autoHeal?: boolean }, signal?: AbortSignal): Promise<{ ok: true; status?: 'verified' | 'unverified'; detail?: string; healed?: boolean }> {
     const contents = this.getActiveWebContents();
     signal?.throwIfAborted();
-    let result = await contents.executeJavaScript(
-      '(' + clickPageElement.toString() + ')(' + JSON.stringify(target) + ')'
-    );
+
+    let result: string | null = null;
+    const deadline = Date.now() + 2000;
+    while (true) {
+      signal?.throwIfAborted();
+      result = await this.run(contents, 
+        '(' + clickPageElement.toString() + ')(' + JSON.stringify(target) + ')'
+      );
+      if (!result) break;
+      if (result === 'ELEMENT_NOT_FOUND' || result === 'ELEMENT_NOT_INTERACTABLE') {
+        if (Date.now() >= deadline) break;
+        await delay(100, undefined, { signal }).catch(() => {});
+        continue;
+      }
+      break;
+    }
 
     let wasHealed = false;
     if (result === 'ELEMENT_NOT_FOUND' && target.selector && target.autoHeal !== false) {
       const healed = await this.healer.heal(contents, target.selector);
       if (healed && healed.confidence >= 0.6 && healed.resolvedSelector !== target.selector) {
-        result = await contents.executeJavaScript(
+        result = await this.run(contents, 
           '(' + clickPageElement.toString() + ')(' + JSON.stringify({ selector: healed.resolvedSelector }) + ')'
         );
         if (!result) wasHealed = true;
@@ -570,8 +846,21 @@ export class BrowserManager {
   async type(target: string | { elementId?: number; selector?: string; autoHeal?: boolean }, text: string, options: { clear?: boolean; pressEnter?: boolean; expect?: ExpectCondition } = {}, signal?: AbortSignal): Promise<{ ok: true; status?: 'verified' | 'unverified'; detail?: string; healed?: boolean }> {
     const contents = this.getActiveWebContents();
     signal?.throwIfAborted();
-    let result = await contents.executeJavaScript(
-      '(' + fillPageInput.toString() + ')(' + JSON.stringify(target) + ',' + JSON.stringify(text) + ',' + Boolean(options.clear) + ')');
+
+    let result: string | null = null;
+    const deadline = Date.now() + 2000;
+    while (true) {
+      signal?.throwIfAborted();
+      result = await this.run(contents, 
+        '(' + fillPageInput.toString() + ')(' + JSON.stringify(target) + ',' + JSON.stringify(text) + ',' + Boolean(options.clear) + ')');
+      if (!result) break;
+      if (result === 'ELEMENT_NOT_FOUND' || result === 'ELEMENT_NOT_INTERACTABLE') {
+        if (Date.now() >= deadline) break;
+        await delay(100, undefined, { signal }).catch(() => {});
+        continue;
+      }
+      break;
+    }
 
     let wasHealed = false;
     const targetSelector = typeof target === 'string' ? target : target.selector;
@@ -580,7 +869,7 @@ export class BrowserManager {
     if (result === 'ELEMENT_NOT_FOUND' && targetSelector && autoHeal) {
       const healed = await this.healer.heal(contents, targetSelector);
       if (healed && healed.confidence >= 0.6 && healed.resolvedSelector !== targetSelector) {
-        result = await contents.executeJavaScript(
+        result = await this.run(contents, 
           '(' + fillPageInput.toString() + ')(' + JSON.stringify({ selector: healed.resolvedSelector }) + ',' + JSON.stringify(text) + ',' + Boolean(options.clear) + ')');
         if (!result) wasHealed = true;
       }
@@ -603,7 +892,7 @@ export class BrowserManager {
   async selectOption(target: { elementId?: number; selector?: string }, option: { value?: string; text?: string; index?: number; expect?: ExpectCondition }, signal?: AbortSignal): Promise<{ ok: true; status?: 'verified' | 'unverified'; detail?: string }> {
     const contents = this.getActiveWebContents();
     signal?.throwIfAborted();
-    const result = await contents.executeJavaScript(
+    const result = await this.run(contents, 
       '(' + selectPageOption.toString() + ')(' + JSON.stringify(target) + ',' + JSON.stringify(option) + ')'
     );
     assertPageAction(result);
@@ -618,7 +907,7 @@ export class BrowserManager {
   async setCheckbox(target: { elementId?: number; selector?: string }, checked = true, options: { expect?: ExpectCondition } = {}, signal?: AbortSignal): Promise<{ ok: true; status?: 'verified' | 'unverified'; detail?: string }> {
     const contents = this.getActiveWebContents();
     signal?.throwIfAborted();
-    const result = await contents.executeJavaScript(
+    const result = await this.run(contents, 
       '(' + setCheckboxState.toString() + ')(' + JSON.stringify(target) + ',' + Boolean(checked) + ')'
     );
     assertPageAction(result);
@@ -633,7 +922,7 @@ export class BrowserManager {
   async hover(target: { elementId?: number; selector?: string; text?: string }, signal?: AbortSignal): Promise<void> {
     const contents = this.getActiveWebContents();
     signal?.throwIfAborted();
-    const result = await contents.executeJavaScript(
+    const result = await this.run(contents, 
       '(' + hoverPageElement.toString() + ')(' + JSON.stringify(target) + ')'
     );
     assertPageAction(result);
@@ -647,19 +936,19 @@ export class BrowserManager {
   }
 
   async getDOM(options: { format?: 'text' | 'html' | 'outline'; maxLength?: number } = {}): Promise<string> {
-    const result = await this.getActiveWebContents().executeJavaScript(
+    const result = await this.run(this.getActiveWebContents(), 
       '(' + readSafePage.toString() + ')(' + JSON.stringify({ ...options, maxLength: Math.min(Math.max(options.maxLength ?? 30000, 1), 100000) }) + ')');
     return String(result || '');
   }
 
   async extract(selector: string, maxItems = 50): Promise<Array<{ text: string; tag: string; attributes: Record<string, string> }>> {
-    return this.getActiveWebContents().executeJavaScript(
+    return this.run(this.getActiveWebContents(), 
       '(' + readSafePage.toString() + ')(' + JSON.stringify({ selector, maxItems: Math.min(Math.max(maxItems, 1), 200) }) + ')');
   }
 
   async inspectForm(options: { formSelector?: string; formElementId?: number } = {}): Promise<ReturnType<typeof inspectPageForms>> {
     const contents = this.getActiveWebContents();
-    const result = await contents.executeJavaScript(
+    const result = await this.run(contents, 
       '(' + inspectPageForms.toString() + ')(' + JSON.stringify(options) + ')'
     );
     return result as ReturnType<typeof inspectPageForms>;
@@ -674,7 +963,7 @@ export class BrowserManager {
   }, signal?: AbortSignal): Promise<ReturnType<typeof fillPageForm>> {
     const contents = this.getActiveWebContents();
     signal?.throwIfAborted();
-    const result = await contents.executeJavaScript(
+    const result = await this.run(contents, 
       '(' + fillPageForm.toString() + ')(' + JSON.stringify(options) + ')'
     );
     return result as ReturnType<typeof fillPageForm>;
@@ -687,7 +976,7 @@ export class BrowserManager {
     maxResults?: number;
   }): Promise<ReturnType<typeof findPageElements>> {
     const contents = this.getActiveWebContents();
-    const result = await contents.executeJavaScript(
+    const result = await this.run(contents, 
       '(' + findPageElements.toString() + ')(' + JSON.stringify(options) + ')'
     );
     return result as ReturnType<typeof findPageElements>;
@@ -714,7 +1003,7 @@ export class BrowserManager {
     try {
       const contents = this.getActiveWebContents();
       if (!contents.isDestroyed() && !contents.isCrashed()) {
-        focusedElement = (await contents.executeJavaScript(
+        focusedElement = (await this.run(contents, 
           '(' + getPageFocusedElement.toString() + ')()'
         )) as typeof focusedElement;
       }
@@ -780,7 +1069,7 @@ export class BrowserManager {
       objectId: evalRes.result.objectId,
     });
 
-    await contents.executeJavaScript(`
+    await this.run(contents, `
       (() => {
         const el = ${expr};
         if (el) {
@@ -804,7 +1093,7 @@ export class BrowserManager {
   async createCheckpoint(name?: string): Promise<{ ok: true; name: string; url: string; fieldsCount: number; timestamp: number }> {
     const cpName = name || `checkpoint-${Date.now()}`;
     const contents = this.getActiveWebContents();
-    const snap = (await contents.executeJavaScript(
+    const snap = (await this.run(contents, 
       '(' + captureFormCheckpoint.toString() + ')()'
     )) as { url: string; fields: any[] };
 
@@ -837,7 +1126,7 @@ export class BrowserManager {
     }
 
     signal?.throwIfAborted();
-    const res = (await contents.executeJavaScript(
+    const res = (await this.run(contents, 
       '(' + restoreFormCheckpoint.toString() + ')(' + JSON.stringify({ fields: cp.fields }) + ')'
     )) as { restoredCount: number };
 
@@ -875,9 +1164,10 @@ export class BrowserManager {
         ok: false,
         intent: options.intent,
         challengeDetected: true,
-        message: `Tantangan bot terdeteksi (${challenge.provider || 'unknown'}). Selesaikan tantangan keamanan terlebih dahulu.`,
+        message: `Tantangan bot terdeteksi (${challenge.provider || 'unknown'}: ${challenge.details || ''}). Selesaikan tantangan keamanan atau panggil browser_request_human_intervention terlebih dahulu.`,
       };
     }
+
 
     let resolvedElementId: number | undefined;
     let resolvedSelector: string | undefined;
@@ -889,7 +1179,7 @@ export class BrowserManager {
     if (idMatch) {
       resolvedElementId = parseInt(idMatch[1]!, 10);
     } else {
-      const existsDirectly = await contents.executeJavaScript(`
+      const existsDirectly = await this.run(contents, `
         (() => {
           try {
             const el = document.querySelector(${JSON.stringify(options.target)});
@@ -901,9 +1191,16 @@ export class BrowserManager {
       if (existsDirectly) {
         resolvedSelector = options.target;
       } else {
-        const findRes = await this.findElement({ query: options.target, maxResults: 1 });
+        const findRes = await this.findElement({ query: options.target, maxResults: 5 });
         if (findRes.elements.length > 0) {
           const best = findRes.elements[0]!;
+          // Never guess between equally good matches: acting on the wrong "Add"/"Delete"
+          // button and reporting success is worse than asking the agent to pick.
+          const ties = findRes.elements.filter(el => best.score - el.score < 0.05);
+          if (ties.length > 1) {
+            const list = ties.map(el => `[${el.elementId}] ${el.role} "${el.name}"${el.context ? ` (dekat: ${el.context.slice(0, 60)})` : ''}`).join('; ');
+            throw new RpcError('ELEMENT_AMBIGUOUS', `Target "${options.target}" cocok dengan ${ties.length} elemen: ${list}. Ulangi dengan target berupa elementId (mis. "${ties[0]!.elementId}") atau deskripsi yang lebih spesifik.`);
+          }
           resolvedElementId = best.elementId;
           resolvedName = best.name;
           resolvedRole = best.role;
@@ -943,7 +1240,7 @@ export class BrowserManager {
         actionResult = { ok: true, status: 'verified' };
         break;
       case 'submit':
-        await contents.executeJavaScript(`
+        await this.run(contents, `
           (() => {
             const target = ${resolvedElementId !== undefined ? `document.querySelector('[data-hero-id="${resolvedElementId}"]')` : `document.querySelector(${JSON.stringify(resolvedSelector)})`};
             if (target) {
@@ -1034,7 +1331,7 @@ export class BrowserManager {
         throw new RpcError('PAGE_CRASHED', 'Halaman browser mengalami crash.');
       }
 
-      const conditionMet = await contents.executeJavaScript(`
+      const conditionMet = await this.run(contents, `
         (() => {
           if (${JSON.stringify(options.expression || '')}) {
             try {
@@ -1086,7 +1383,7 @@ export class BrowserManager {
     const contents = this.getActiveWebContents();
     const dir = options.direction || 'down';
     const amount = options.amount || 500;
-    await contents.executeJavaScript(`
+    await this.run(contents, `
       (() => {
         if (${JSON.stringify(dir)} === 'top') window.scrollTo({ top: 0, behavior: 'smooth' });
         else if (${JSON.stringify(dir)} === 'bottom') window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
@@ -1099,7 +1396,7 @@ export class BrowserManager {
   async extractSchema(schema: ExtractionSpec): Promise<Record<string, Json>[]> {
     const contents = this.getActiveWebContents();
     const currentUrl = contents.getURL() || 'http://localhost';
-    const rawRows = await contents.executeJavaScript(`
+    const rawRows = await this.run(contents, `
       (() => {
         const rowSelector = ${JSON.stringify(schema.rowSelector)};
         const fields = ${JSON.stringify(schema.fields)};
@@ -1149,7 +1446,7 @@ export class BrowserManager {
 
   async discoverLinks(keyword = '', limit = 50): Promise<Array<{ url: string; text: string; title: string }>> {
     const contents = this.getActiveWebContents();
-    const links = await contents.executeJavaScript(`
+    const links = await this.run(contents, `
       (() => {
         const kw = ${JSON.stringify(keyword.toLowerCase().trim())};
         const lim = ${Math.min(Math.max(limit, 1), 200)};
@@ -1336,7 +1633,7 @@ export class BrowserManager {
   }> {
     const contents = this.getActiveWebContents();
     const storageType = options.type === 'session' ? 'sessionStorage' : 'localStorage';
-    const result = (await contents.executeJavaScript(`
+    const result = (await this.run(contents, `
       (() => {
         try {
           const store = window[${JSON.stringify(storageType)}];
@@ -1377,7 +1674,7 @@ export class BrowserManager {
       throw new RpcError('INVALID_INPUT', 'Parameter "key" diperlukan untuk aksi remove.');
     }
 
-    await contents.executeJavaScript(`
+    await this.run(contents, `
       (() => {
         const store = window[${JSON.stringify(storageType)}];
         if (!store) throw new Error("Storage tidak tersedia pada halaman ini.");
@@ -1407,7 +1704,7 @@ export class BrowserManager {
       if (point.x !== undefined && point.y !== undefined) {
         return { x: point.x, y: point.y };
       }
-      const box = (await contents.executeJavaScript(
+      const box = (await this.run(contents, 
         '(' + getElementBoundingBox.toString() + ')(' + JSON.stringify({ elementId: point.elementId, selector: point.selector }) + ')'
       )) as { x: number; y: number; width: number; height: number } | null;
       if (!box || box.width <= 0 || box.height <= 0) {
@@ -1444,7 +1741,7 @@ export class BrowserManager {
         type: 'mouseReleased', x: end.x, y: end.y, button: 'left',
       });
     } else {
-      await contents.executeJavaScript(`
+      await this.run(contents, `
         (() => {
           const fromEl = document.elementFromPoint(${start.x}, ${start.y}) || document.body;
           const toEl = document.elementFromPoint(${end.x}, ${end.y}) || document.body;

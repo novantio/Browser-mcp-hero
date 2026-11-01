@@ -119,6 +119,10 @@ export class AuditLogger {
         return `Ekstraksi data: ${params.selector}`;
       case 'automation.observe':
         return `Observasi semantik halaman`;
+      case 'automation.readText':
+        return `Baca halaman sebagai teks`;
+      case 'app.restart':
+        return `Restart aplikasi`;
       case 'automation.selectOption':
         return `Pilih opsi dropdown ${params.selector || ''}`;
       case 'automation.check':

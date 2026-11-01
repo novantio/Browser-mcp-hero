@@ -1,5 +1,7 @@
 # Panduan Integrasi Hero Browser MCP ke Berbagai Code Editor & AI Client
 
+> Instalasi dari nol (clone, build, verifikasi) ada di [INSTALL.md](INSTALL.md). Contoh path di bawah memakai lokasi pengembangan; ganti dengan path `dist/mcp/index.js` di mesin Anda.
+
 Dokumen ini menjelaskan cara menghubungkan **Hero Browser (Web Data OS & AI Browser)** ke berbagai code editor dan AI environment yang mendukung protokol **Model Context Protocol (MCP)**.
 
 ---
@@ -45,7 +47,7 @@ Hero Browser beroperasi dengan arsitektur **Hybrid Client-Host**:
 
 ## Prasyarat
 
-1. **Node.js**: v18 atau yang lebih baru terinstal.
+1. **Node.js**: v22 atau yang lebih baru terinstal.
 2. **Build Project**: Pastikan project sudah di-build setidaknya sekali:
    ```bash
    cd d:\project\node\2026\Browser-mcp-hero
@@ -149,7 +151,7 @@ Buka file tersebut dan tambahkan:
   }
 }
 ```
-Muat ulang Windsurf (*Reload Window*) untuk memuat seluruh 78 tool Hero Browser.
+Muat ulang Windsurf (*Reload Window*) untuk memuat tool Hero Browser (default preset core, 31 tool).
 
 ---
 
@@ -175,7 +177,7 @@ Untuk menggunakan Hero Browser langsung bersama **Claude 3.7 / 3.5 Sonnet** di a
 }
 ```
 3. Restart aplikasi Claude Desktop.
-4. Anda akan melihat ikon palu (*tool icon*) di pojok chat dengan status *78 tools available*.
+4. Anda akan melihat ikon palu (*tool icon*) di pojok chat dengan status *31 tools available* (preset core).
 
 ---
 
@@ -275,7 +277,7 @@ if __name__ == "__main__":
 
 ## Daftar Tool Unggulan yang Didapat
 
-Dengan mengintegrasikan Hero Browser MCP, AI Assistant Anda di editor apa pun mendapatkan akses ke **78 tools enterprise**:
+Dengan mengintegrasikan Hero Browser MCP, AI Assistant Anda di editor apa pun mendapatkan akses ke **109 tool** (31 aktif secara default di preset core):
 
 | Kategori | Tool Utama | Fungsi |
 |---|---|---|

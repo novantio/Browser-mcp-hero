@@ -1,3 +1,4 @@
+import { execWithTimeout } from '../page-exec';
 import type { WebContents } from 'electron';
 import type { ExtractionSpec, Json } from '../../shared/data-contracts';
 import type { NetworkIntelligence } from './network-intelligence';
@@ -142,7 +143,7 @@ export class ExtractionEngine {
 
   private async extractFromEmbedded(contents: WebContents, schema: ExtractionSpec): Promise<StrategyResult> {
     try {
-      const embeddedData = await contents.executeJavaScript(`
+      const embeddedData = await execWithTimeout(contents, `
         (() => {
           const scripts = Array.from(document.querySelectorAll('script[type="application/json"], script#__NEXT_DATA__, script#__NUXT_DATA__'));
           for (const s of scripts) {
@@ -185,7 +186,7 @@ export class ExtractionEngine {
 
   private async extractFromMetadata(contents: WebContents, schema: ExtractionSpec): Promise<StrategyResult> {
     try {
-      const meta = await contents.executeJavaScript(`
+      const meta = await execWithTimeout(contents, `
         (() => {
           const jsonLd = Array.from(document.querySelectorAll('script[type="application/ld+json"]')).map(s => {
             try { return JSON.parse(s.textContent || ''); } catch { return null; }
@@ -226,7 +227,7 @@ export class ExtractionEngine {
   private async extractFromDom(contents: WebContents, schema: ExtractionSpec): Promise<StrategyResult> {
     try {
       const currentUrl = contents.getURL() || 'http://localhost';
-      const rawRows = await contents.executeJavaScript(`
+      const rawRows = await execWithTimeout(contents, `
         (() => {
           const rowSelector = ${JSON.stringify(schema.rowSelector)};
           const fields = ${JSON.stringify(schema.fields)};
@@ -285,7 +286,7 @@ export class ExtractionEngine {
   private async extractFromAria(contents: WebContents, schema: ExtractionSpec): Promise<StrategyResult> {
     try {
       const currentUrl = contents.getURL() || 'http://localhost';
-      const rawRows = await contents.executeJavaScript(`
+      const rawRows = await execWithTimeout(contents, `
         (() => {
           const articles = Array.from(document.querySelectorAll('[role="article"], [role="listitem"], [role="region"], article, [data-e2e*="item"], [data-testid*="item"]')).slice(0, ${Math.min(schema.maxItems, 100)});
           return articles.map(el => {

@@ -5,15 +5,27 @@ const short = z.string().min(1).max(2000);
 const taskInput = { taskId: id };
 const task = z.object({
   id, profileId: id, status: z.enum(['RUNNING', 'PAUSED', 'WAITING_FOR_HUMAN', 'RESUMING', 'COMPLETED', 'FAILED', 'CANCELLED']),
-  createdAt: z.number(), updatedAt: z.number(), ttlMs: z.number().optional(), error: z.string().optional(),
+  createdAt: z.number(), updatedAt: z.number(), ttlMs: z.number().optional(), retentionMs: z.number().optional(),
+  pausedReason: z.enum(['manual', 'inactivity', 'preempted']).optional(), error: z.string().optional(),
   intervention: z.object({ reason: z.string(), message: z.string(), requestedAt: z.number() }).strict().optional(),
 }).strict();
+const socialAccount = z.object({
+  platform: z.string(),
+  name: z.string(),
+  loggedIn: z.boolean(),
+  username: z.string().optional(),
+}).strict();
+
 const profile = z.object({
   id, name: z.string(), createdAt: z.number(), sharedWith: id.optional(), lockOwner: id.nullable(),
   sessionProfileId: id, sharedProfiles: z.array(id), isActive: z.boolean(), isLocked: z.boolean(),
+  loggedInServices: z.array(z.string()).optional(),
+  socialAccounts: z.array(socialAccount).optional(),
 }).strict();
+
 const tab = z.object({
   id, title: z.string(), url: z.string(), loading: z.boolean(), canGoBack: z.boolean(), canGoForward: z.boolean(), error: z.string().nullable(),
+  certificateWarning: z.object({ requestId: id, host: z.string(), url: z.string() }).strict().nullable().optional(),
 }).strict();
 const ok = z.object({ ok: z.literal(true) }).strict();
 const expectCondition = z.object({
@@ -41,12 +53,13 @@ const observedElement = z.object({
   options: z.array(z.string()).optional(),
   selected: z.string().optional(),
   href: z.string().optional(),
+  context: z.string().optional(),
 }).strict();
 const observeResult = z.object({
   url: z.string(),
   title: z.string(),
   loading: z.boolean(),
-  elements: z.array(observedElement),
+  elements: z.array(observedElement).optional(),
   text: z.string(),
 }).strict();
 const consoleEntry = z.object({
@@ -160,6 +173,7 @@ const foundElement = z.object({
     height: z.number(),
   }).strict(),
   attributes: z.record(z.string(), z.string()),
+  context: z.string().optional(),
 }).strict();
 
 const findElementResult = z.object({
@@ -209,6 +223,9 @@ const detectChallengeResult = z.object({
   detected: z.boolean(),
   provider: z.string().optional(),
   details: z.string().optional(),
+  status: z.string().optional(),
+  taskId: id.optional(),
+  resumeToken: id.optional(),
 }).strict();
 
 const uploadFileResult = z.object({
@@ -253,7 +270,23 @@ const actResult = z.object({
   verified: z.boolean().optional(),
   challengeDetected: z.boolean().optional(),
   message: z.string(),
+  status: z.string().optional(),
+  resumeToken: id.optional(),
 }).strict();
+
+const profileLoginSummary = z.object({
+  profileId: id,
+  profileName: z.string(),
+  isActive: z.boolean(),
+  loggedInServices: z.array(z.string()),
+  socialAccounts: z.array(socialAccount),
+}).strict();
+
+const getProfileLoginsResult = z.object({
+  profiles: z.array(profileLoginSummary),
+  recommendations: z.record(z.string(), id),
+}).strict();
+
 
 const cookieEntry = z.object({
   name: z.string(),
@@ -303,17 +336,31 @@ export interface ToolContract {
 const define = (name: string, method: string, description: string, shape: Record<string, z.ZodType>, output: z.ZodType): ToolContract =>
   ({ name, method, description, input: z.object(shape).strict(), output });
 
+const engineState = z.object({
+  status:z.enum(['idle','checking','downloading','verifying','ready','up_to_date','error','unsupported']),
+  enabled:z.boolean(),currentElectron:z.string(),currentChromium:z.string(),latestElectron:z.string().nullable(),readyElectron:z.string().nullable(),
+  progress:z.number().nullable(),lastCheckedAt:z.number().nullable(),message:z.string(),
+}).strict();
 export const toolContracts: ToolContract[] = [
-  define('browser_list_profiles', 'profiles.list', 'Daftar profil persisten dan pemilik sesi.', {}, z.array(profile)),
+  define('browser_get_engine_status', 'engine.status', 'Versi Electron/Chromium dan status pembaruan engine.', {}, engineState),
+  define('browser_check_engine_update', 'engine.check', 'Periksa dan siapkan rilis stabil resmi di latar belakang, tanpa menutup sesi aktif.', {}, engineState),
+  define('browser_list_profiles', 'profiles.list', 'Daftar profil persisten dan status login sosial media (TikTok, YouTube, Instagram, X, Facebook, dll.). PENTING: Periksa field "loggedInServices" sebelum memulai tugas browser untuk memilih profileId yang sudah login.', {}, z.array(profile)),
+  define('browser_get_profile_logins', 'profiles.getLogins', 'Daftar semua akun sosial media yang sedang login (TikTok, YouTube, Instagram, X/Twitter, Facebook, GitHub, dll.) di setiap profil browser beserta rekomendasi profileId yang harus digunakan.', { profileId: id.optional() }, getProfileLoginsResult),
   define('browser_create_profile', 'profiles.create', 'Buat profil baru tanpa menghapus profil atau login lama.', { name: z.string().trim().min(1).max(40) }, selected),
   define('browser_switch_profile', 'profiles.switch', 'Aktifkan profil milik task. Mulai task terlebih dahulu.', { ...taskInput, profileId: id }, selected),
   define('browser_unlock_profile', 'profiles.unlock', 'Buka paksa kunci profil yang menggantung (stale lock) jika task klien sebelumnya terputus atau crash.', { profileId: id }, z.object({ ok: z.literal(true), profileId: id }).strict()),
-  define('browser_start_task', 'tasks.create', 'Mulai task dan kunci sesi profil. Gunakan ID hasilnya pada setiap perintah browser. Mendukung batas inaktivitas (ttlSeconds) dan opsi force unlock.', {
+  define('browser_start_task', 'tasks.create', 'Mulai task dan kunci sesi profil. Gunakan ID hasilnya pada setiap perintah browser. PENTING: Jika ingin membuka platform tertentu (misal TikTok), periksa browser_list_profiles lalu gunakan profileId yang memiliki sesi login platform tersebut. Mendukung batas inaktivitas (ttlSeconds, default 600 detik; task yang dijeda karena inaktivitas otomatis lanjut pada perintah berikutnya), retensi sesi (retentionSeconds, default 1800 detik / 30 menit), deskripsi task opsional, dan opsi force unlock.', {
     profileId: id.optional(),
     taskId: id.optional(),
+    task: z.string().max(2000).optional(),
+    description: z.string().max(2000).optional(),
+    context: z.string().max(2000).optional(),
     ttlSeconds: z.number().int().min(1).max(86400).optional(),
+    retentionSeconds: z.number().int().min(10).max(604800).optional(),
     force: z.boolean().optional(),
   }, task),
+
+  define('browser_restart_app', 'app.restart', 'Restart aplikasi Hero Browser (build ulang lalu buka kembali) bila browser macet total atau setelah pembaruan kode. Sesi login dan profil tetap tersimpan; task berjalan berakhir sehingga mulai task baru setelahnya. Tidak memerlukan taskId.', {}, z.object({ ok: z.literal(true), restarting: z.literal(true), message: z.string() }).strict()),
   define('browser_list_tasks', 'tasks.list', 'Daftar tugas dan statusnya.', {}, z.array(task)),
   define('browser_get_task_status', 'tasks.get', 'Baca status task.', taskInput, task),
   define('browser_pause_task', 'tasks.pause', 'Jeda task dan hentikan penantian yang sedang berjalan.', taskInput, task),
@@ -327,11 +374,25 @@ export const toolContracts: ToolContract[] = [
   define('browser_new_tab', 'tabs.new', 'Buka tab pada profil task.', { ...taskInput, url: short.optional() }, z.array(tab)),
   define('browser_close_tab', 'tabs.close', 'Tutup tab tertentu pada profil task.', { ...taskInput, tabId: id }, z.array(tab)),
   define('browser_switch_tab', 'tabs.switch', 'Aktifkan tab pada profil task.', { ...taskInput, tabId: id }, z.array(tab)),
-  define('browser_navigate', 'tabs.navigate', 'Navigasi tab aktif milik task.', { ...taskInput, url: short, expect: expectCondition.optional() }, z.object({ url: z.string(), status: z.enum(['verified', 'unverified']).optional() }).strict()),
-  ...['reload', 'back', 'forward'].map(action => define('browser_' + action, 'tabs.' + action, 'Navigasi tab aktif milik task: ' + action, taskInput, ok)),
-  define('browser_observe', 'automation.observe', 'Ambil snapshot semantik halaman dengan nomor ID elemen [1], [2] untuk AI agent.', {
-    ...taskInput, maxLength: z.number().int().min(100).max(100000).optional(),
+  define('browser_navigate', 'tabs.navigate', 'Navigasi tab aktif milik task. Bila status "certificate_warning", sertifikat TLS host tidak valid dan persetujuan manusia diperlukan di UI Hero Browser (mirip "Proceed" di Chrome).', { ...taskInput, url: short, expect: expectCondition.optional() }, z.object({ url: z.string(), status: z.enum(['verified', 'unverified', 'certificate_warning']).optional(), certificateWarning: z.object({ host: z.string() }).optional(), hint: z.string().optional() }).strict()),
+  define('browser_reload', 'tabs.reload', 'Muat ulang tab aktif. hard: abaikan cache. force: pulihkan tab yang macet/crash (JavaScript berat, PAGE_UNRESPONSIVE) dengan mematikan renderer lalu memuat ulang URL.', {
+    ...taskInput, hard: z.boolean().optional(), force: z.boolean().optional(),
+  }, z.object({ ok: z.literal(true), url: z.string(), recovered: z.boolean() }).strict()),
+  ...['back', 'forward'].map(action => define('browser_' + action, 'tabs.' + action, 'Navigasi tab aktif milik task: ' + action, taskInput, ok)),
+  define('browser_observe', 'automation.observe', 'Ambil snapshot semantik elemen interaktif bernomor [1], [2] untuk diklik/diisi. Elemen kembar diberi konteks "(dekat: ...)". format: "text" (default, hemat token), "json" (array elements), "both". Untuk MEMBACA isi halaman gunakan browser_read_text.', {
+    ...taskInput, maxLength: z.number().int().min(100).max(100000).optional(), format: z.enum(['text', 'json', 'both']).optional(),
   }, observeResult),
+  define('browser_read_text', 'automation.readText', 'Baca halaman sebagai markdown ringkas ala lynx: judul, paragraf, daftar, tabel, dan tautan bernomor [teks][n] dengan daftar URL di akhir. Paling hemat token untuk mencari informasi. source "fetch" mengunduh HTML dengan cookie profil TANPA menjalankan JavaScript (aman untuk halaman berat/hang); "live" membaca DOM tab saat ini (untuk SPA); "auto" (default) = live untuk tab aktif bila url kosong, fetch bila url diisi, dan otomatis fallback ke fetch bila halaman tidak merespons. url opsional; tidak mengubah tab.', {
+    ...taskInput,
+    url: short.optional(),
+    source: z.enum(['auto', 'fetch', 'live']).optional(),
+    maxLength: z.number().int().min(200).max(200000).optional(),
+    mainOnly: z.boolean().optional(),
+    includeLinks: z.boolean().optional(),
+  }, z.object({
+    url: z.string(), title: z.string(), status: z.number().int().optional(), source: z.enum(['fetch', 'live']),
+    markdown: z.string(), links: z.number().int(), truncated: z.boolean(),
+  }).strict()),
   define('browser_click', 'automation.click', 'Klik berdasarkan elementId, selector, atau teks. Berikan tepat satu target.', {
     ...taskInput, elementId: z.number().int().min(1).optional(), selector: short.optional(), text: short.optional(), expect: expectCondition.optional(),
   }, actionResult),
@@ -402,7 +463,8 @@ export const toolContracts: ToolContract[] = [
   define('browser_heal_selector', 'automation.healSelector', 'Analisis dan perbaiki CSS selector yang rusak menggunakan kesamaan semantik dan teks.', {
     ...taskInput, selector: short, previousTag: z.string().max(30).optional(), contextSnippet: z.string().max(200).optional(),
   }, healSelectorResult),
-  define('browser_detect_challenge', 'automation.detectChallenge', 'Deteksi apakah halaman terhadang tantangan keamanan bot (Cloudflare Turnstile, reCAPTCHA, hCaptcha, Arkose).', taskInput, detectChallengeResult),
+  define('browser_detect_challenge', 'automation.detectChallenge', 'Deteksi apakah halaman terhadang tantangan keamanan bot (TikTok SecSDK/CAPTCHA, Cloudflare Turnstile, reCAPTCHA, hCaptcha, Arkose, Geetest, DataDome). Opsi autoIntervene otomatis membuat tiket intervensi manusia jika terdeteksi.', { ...taskInput, autoIntervene: z.boolean().optional() }, detectChallengeResult),
+
   define('browser_upload_file', 'automation.uploadFile', 'Unggah file lokal ke elemen input[type=file] menggunakan protokol native CDP.', {
     ...taskInput, elementId: z.number().int().min(1).optional(), selector: short.optional(), filePaths: z.array(z.string().min(1)).min(1),
   }, uploadFileResult),
@@ -415,7 +477,7 @@ export const toolContracts: ToolContract[] = [
   define('browser_rollback_checkpoint', 'automation.rollbackCheckpoint', 'Kembalikan kondisi isian formulir dari checkpoint yang telah disimpan.', {
     ...taskInput, name: z.string().max(100),
   }, rollbackCheckpointResult),
-  define('browser_act', 'automation.act', 'Eksekusi aksi tingkat tinggi (klik, ketik, pilih, centang) dengan auto-healing dan verifikasi hasil dalam 1 siklus.', {
+  define('browser_act', 'automation.act', 'Eksekusi aksi tingkat tinggi (klik, ketik, pilih, centang) dengan auto-healing dan verifikasi hasil dalam 1 siklus. target: elementId (mis. "12"), selector CSS, atau deskripsi ("tombol Tambah untuk Teh Tubruk"; teks sekitar elemen ikut dinilai). Bila beberapa elemen sama cocok, aksi TIDAK dijalankan dan error ELEMENT_AMBIGUOUS mencantumkan kandidat; ulangi dengan elementId.', {
     ...taskInput,
     intent: z.enum(['click', 'type', 'select', 'check', 'submit', 'hover']),
     target: short,
