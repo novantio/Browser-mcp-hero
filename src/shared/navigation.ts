@@ -143,8 +143,9 @@ export function parseCommand(value: unknown): BrowserCommand {
     return { action: 'resume-human-intervention', taskId: data.taskId };
   }
   if (data.action === 'clear-site-data' && typeof data.profileId === 'string' && /^[a-z0-9][a-z0-9-]{0,63}$/.test(data.profileId) &&
-      typeof data.domain === 'string' && /^(?:https?:\/\/)?[a-z0-9-]+(?:\.[a-z0-9-]+)+\/?$/i.test(data.domain.trim()) && keys.length === 3) {
-    return { action: 'clear-site-data', profileId: data.profileId, domain: data.domain.trim() };
+      Array.isArray(data.domains) && data.domains.length > 0 && data.domains.length <= 50 && keys.length === 3 &&
+      data.domains.every(d => typeof d === 'string' && /^[a-z0-9-]+(?:\.[a-z0-9-]+)+$/i.test(d.trim()))) {
+    return { action: 'clear-site-data', profileId: data.profileId, domains: [...new Set((data.domains as string[]).map(d => d.trim().toLowerCase()))] };
   }
   if ((data.action === 'set-stealth' || data.action === 'set-session-cookies') && typeof data.profileId === 'string' && /^[a-z0-9][a-z0-9-]{0,63}$/.test(data.profileId) &&
       typeof data.enabled === 'boolean' && keys.length === 3) {

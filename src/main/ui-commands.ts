@@ -50,12 +50,15 @@ export async function handleCommand(ctx: UiCommandContext, browser: BrowserManag
   if (command.action === 'switch-profile') { browser.switchProfile(command.profileId); return; }
   if (command.action === 'clear-site-data') {
     const profile = profiles.requireProfile(command.profileId);
+    const listed = new Map((await sessions.listSiteData(command.profileId)).map(entry => [entry.site, entry.cookies]));
+    const lines = command.domains.map(domain => '• ' + domain + (listed.has(domain) ? ' (' + listed.get(domain) + ' cookie)' : ''));
     const result = await dialog.showMessageBox(ctx.window, {
-      type: 'warning', title: 'Hapus data situs', message: 'Hapus data ' + command.domain + ' di profil “' + profile.name + '”?',
+      type: 'warning', title: 'Hapus data situs',
+      message: 'Hapus data ' + command.domains.length + ' situs di profil “' + profile.name + '”?\n' + lines.join('\n'),
       detail: 'Cookie, penyimpanan lokal, IndexedDB, dan cache situs ini (termasuk subdomainnya) dihapus dari profil ini saja. Anda akan keluar (logout) dari situs tersebut dan perlu login ulang. Situs lain dan profil lain tidak terpengaruh.',
       buttons: ['Batal', 'Hapus data situs'], defaultId: 0, cancelId: 0, noLink: true,
     });
-    if (result.response === 1) await browser.clearSiteData(command.profileId, command.domain);
+    if (result.response === 1) for (const domain of command.domains) await browser.clearSiteData(command.profileId, domain);
     return;
   }
   if (command.action === 'set-session-cookies') { profiles.setPersistSessionCookies(command.profileId, command.enabled); browser.emitState(); return; }

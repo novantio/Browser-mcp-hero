@@ -30,7 +30,9 @@ module.exports = async ({ app, url, call, raw, action, expectError, reset, test,
     // Confirm the "Hapus data situs" dialog without a human.
     await app.evaluate(({ dialog }) => { globalThis.__realBox = dialog.showMessageBox; dialog.showMessageBox = async () => ({ response: 1, checkboxChecked: false }); });
     try {
-      assert.deepEqual(await win.evaluate(domain => window.browser.command({ action: 'clear-site-data', profileId: 'default', domain }), host), { ok: true });
+      const listed = await win.evaluate(() => window.browser.listSiteData('default'));
+      assert.ok(listed.some(entry => entry.site === host && entry.cookies >= 1), 'the picker lists the site that has data');
+      assert.deepEqual(await win.evaluate(domain => window.browser.command({ action: 'clear-site-data', profileId: 'default', domains: [domain] }), host), { ok: true });
     } finally {
       await app.evaluate(({ dialog }) => { dialog.showMessageBox = globalThis.__realBox; });
     }

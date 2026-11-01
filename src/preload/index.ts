@@ -7,6 +7,7 @@ const api: BrowserAPI = {
   command: command => ipcRenderer.invoke('browser:command', command),
   setBounds: bounds => ipcRenderer.invoke('browser:bounds', bounds),
   setOverlay: open => ipcRenderer.invoke('browser:overlay', open),
+  listSiteData: profileId => ipcRenderer.invoke('browser:site-data', profileId),
   onState(listener) {
     const handler = (_event: Electron.IpcRendererEvent, state: BrowserState) => listener(state);
     ipcRenderer.on('browser:state-changed', handler);

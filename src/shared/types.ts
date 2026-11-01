@@ -67,7 +67,7 @@ export type BrowserCommand =
   | { action: 'certificate-response'; allow: boolean }
   | { action: 'set-media-mode'; mode: 'full' | 'no-video' | 'lite' }
   | { action: 'set-stealth' | 'set-session-cookies'; profileId: string; enabled: boolean }
-  | { action: 'clear-site-data'; profileId: string; domain: string };
+  | { action: 'clear-site-data'; profileId: string; domains: string[] };
 
 export interface ViewBounds { x: number; y: number; width: number; height: number }
 export type CommandResult = { ok: true } | { ok: false; error: string };
@@ -109,6 +109,8 @@ export interface BrowserAPI {
   setBounds(bounds: ViewBounds): Promise<void>;
   /** True while an app dialog is open, so the web page view does not cover it. */
   setOverlay(open: boolean): Promise<void>;
+  /** Sites that have cookies stored in a profile, for the "clear site data" picker. */
+  listSiteData(profileId: string): Promise<Array<{ site: string; cookies: number; hosts: string[] }>>;
   onState(listener: (state: BrowserState) => void): () => void;
   onFocusAddress(listener: () => void): () => void;
   onHumanIntervention(listener: (req: HumanInterventionRequest | null) => void): () => void;

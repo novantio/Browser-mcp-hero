@@ -89,6 +89,12 @@ ipcMain.handle('browser:command', async (event, value: unknown): Promise<Command
   } finally { if (ownsCommand) commandBusy = false; }
 });
 ipcMain.handle('browser:bounds', (event, value: unknown) => requireTrustedSender(event).setBounds(parseBounds(value)));
+ipcMain.handle('browser:site-data', (event, profileId: unknown) => {
+  requireTrustedSender(event);
+  if (typeof profileId !== 'string' || !/^[a-z0-9][a-z0-9-]{0,63}$/.test(profileId)) throw new Error('Profil tidak valid.');
+  profiles.requireProfile(profileId);
+  return sessions.listSiteData(profileId);
+});
 ipcMain.handle('browser:overlay', (event, open: unknown) => requireTrustedSender(event).setOverlay(open === true));
 ipcMain.handle('browser:get-mcp-config', event => {
   requireTrustedSender(event);

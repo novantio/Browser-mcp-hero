@@ -3,6 +3,7 @@ import type { ProfileSummary } from '../shared/profiles.js';
 import { app, command, onProfileControlsChange } from './app-state.js';
 import { element, showToast } from './dom.js';
 import { deleteBlocker } from './profiles-ui.js';
+import { siteDataPicker } from './site-data-picker.js';
 
 type OpenForm = { profileId: string; kind: 'duplicate' | 'rename' | 'clear' } | null;
 let openForm: OpenForm = null;
@@ -71,43 +72,6 @@ function inlineForm(profile: ProfileSummary, state: BrowserState): HTMLFormEleme
   return form;
 }
 
-/** Domain of the active tab when it belongs to this profile, as a sensible default. */
-function activeDomain(state: BrowserState, profile: ProfileSummary): string {
-  if (profile.id !== state.activeProfileId) return '';
-  const tab = state.tabs.find(t => t.id === state.activeTabId);
-  try { return tab?.url ? new URL(tab.url).hostname.replace(/^www\./, '') : ''; } catch { return ''; }
-}
-
-function clearForm(profile: ProfileSummary, state: BrowserState): HTMLFormElement {
-  const form = document.createElement('form');
-  form.className = 'profile-inline-form';
-  const input = document.createElement('input');
-  input.maxLength = 253;
-  input.required = true;
-  input.placeholder = 'contoh: shopee.co.id';
-  input.setAttribute('aria-label', 'Domain situs yang datanya dihapus');
-  input.value = activeDomain(state, profile);
-  const note = document.createElement('label');
-  note.textContent = 'Cookie & penyimpanan situs ini dihapus; Anda akan logout dari situs itu.';
-  const submit = document.createElement('button');
-  submit.type = 'submit';
-  submit.className = 'primary-button';
-  submit.textContent = 'Hapus data situs';
-  form.append(input, note, submit, button('Batal', 'Batal', () => { openForm = null; render(state, true); }));
-  form.addEventListener('submit', event => {
-    event.preventDefault();
-    const domain = input.value.trim();
-    void command({ action: 'clear-site-data', profileId: profile.id, domain }, FEEDBACK).then(ok => {
-      if (!ok) return;
-      showToast('Data ' + domain + ' di profil ini sudah dihapus (bila dikonfirmasi). Login ulang ke situs itu bila perlu.');
-      openForm = null;
-      if (app.current) render(app.current, true);
-    });
-  });
-  requestAnimationFrame(() => { input.focus(); input.select(); });
-  return form;
-}
-
 function row(profile: ProfileSummary, state: BrowserState): HTMLLIElement {
   const item = document.createElement('li');
   item.className = 'profile-row' + (profile.id === state.activeProfileId ? ' active' : '');
@@ -134,7 +98,7 @@ function row(profile: ProfileSummary, state: BrowserState): HTMLLIElement {
     button(isActive ? 'Aktif' : 'Pakai', 'Buka profil ini', () => { void command({ action: 'switch-profile', profileId: profile.id }, FEEDBACK); }, isActive ? 'Profil ini sedang dipakai.' : null),
     button('Duplikat…', 'Buat profil baru yang membawa login profil ini', () => { openForm = { profileId: profile.id, kind: 'duplicate' }; render(state, true); }),
     button('Ganti nama', 'Ganti nama profil', () => { openForm = { profileId: profile.id, kind: 'rename' }; render(state, true); }),
-    button('Hapus data situs…', 'Hapus cookie dan penyimpanan satu situs (mis. shopee.co.id) di profil ini, seperti "Clear site data" di Chrome. Berguna bila situs terus gagal karena sesi atau penanda lama.', () => { openForm = { profileId: profile.id, kind: 'clear' }; render(state, true); }),
+    button('Hapus data situs…', 'Pilih dari daftar situs yang menyimpan data di profil ini, lalu hapus cookie dan penyimpanannya (seperti "Clear site data" di Chrome). Berguna bila situs terus gagal karena sesi atau penanda lama.', () => { openForm = { profileId: profile.id, kind: 'clear' }; render(state, true); }),
     button(profile.stealth === false ? 'Stealth: mati' : 'Stealth: aktif',
       profile.stealth === false
         ? 'Halaman tampil apa adanya (Chromium/Electron) tanpa pemalsuan identitas browser. Klik untuk menyalakan stealth.'
@@ -148,7 +112,9 @@ function row(profile: ProfileSummary, state: BrowserState): HTMLLIElement {
     button('Hapus', 'Hapus profil beserta login dan data situsnya', () => { void command({ action: 'delete-profile', profileId: profile.id }, FEEDBACK); }, deleteBlocker(state, profile.id)),
   );
   item.append(info, actions);
-  if (openForm?.profileId === profile.id) item.append(openForm.kind === 'clear' ? clearForm(profile, state) : inlineForm(profile, state));
+  if (openForm?.profileId === profile.id) item.append(openForm.kind === 'clear'
+    ? siteDataPicker(profile, state, FEEDBACK, () => { openForm = null; if (app.current) render(app.current, true); })
+    : inlineForm(profile, state));
   return item;
 }
 

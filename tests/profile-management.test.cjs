@@ -61,13 +61,23 @@ test('stealth is on by default, can be switched off per profile and persists', (
   assert.throws(() => parseCommand({ action: 'set-stealth', profileId: 'research', enabled: 'no' }));
 });
 
-test('parseCommand accepts clear-site-data for real domains only', () => {
-  assert.deepEqual(parseCommand({ action: 'clear-site-data', profileId: 'default', domain: 'shopee.co.id' }),
-    { action: 'clear-site-data', profileId: 'default', domain: 'shopee.co.id' });
-  assert.equal(parseCommand({ action: 'clear-site-data', profileId: 'default', domain: ' https://shopee.co.id/ ' }).domain, 'https://shopee.co.id/');
-  for (const domain of ['', 'localhost', '../etc', 'shopee.co.id/path/x', 'a b.com']) {
-    assert.throws(() => parseCommand({ action: 'clear-site-data', profileId: 'default', domain }), domain);
+test('parseCommand accepts clear-site-data with a list of real domains only', () => {
+  assert.deepEqual(parseCommand({ action: 'clear-site-data', profileId: 'default', domains: ['shopee.co.id', 'Shopee.co.id', 'tiktok.com'] }),
+    { action: 'clear-site-data', profileId: 'default', domains: ['shopee.co.id', 'tiktok.com'] });
+  for (const domains of [[], ['localhost'], ['../etc'], ['shopee.co.id/path'], ['a b.com'], 'shopee.co.id', Array(51).fill('a.com')]) {
+    assert.throws(() => parseCommand({ action: 'clear-site-data', profileId: 'default', domains }), JSON.stringify(domains).slice(0, 40));
   }
+});
+
+test('siteOf groups cookie hosts by site, including country second-level domains', () => {
+  const { siteOf, belongsToSite } = require('../dist/shared/site-domain');
+  assert.equal(siteOf('.seller.shopee.co.id'), 'shopee.co.id');
+  assert.equal(siteOf('www.tiktok.com'), 'tiktok.com');
+  assert.equal(siteOf('accounts.google.com'), 'google.com');
+  assert.equal(siteOf('ui.ac.id'), 'ui.ac.id');
+  assert.equal(siteOf('127.0.0.1'), '127.0.0.1');
+  assert.equal(belongsToSite('.seller.shopee.co.id', 'shopee.co.id'), true);
+  assert.equal(belongsToSite('notshopee.co.id', 'shopee.co.id'), false, 'a lookalike domain is not the same site');
 });
 
 test('session-cookie persistence: per profile, off for new profiles, never for Shopee', () => {

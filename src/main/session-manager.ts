@@ -7,6 +7,7 @@ import { detectSessionSocialLogins } from './social-detector';
 import { CertificateTrustStore } from './certificate-trust';
 import { MediaFilter } from './media-filter';
 import { normalizeCertHost } from '../shared/navigation';
+import { belongsToSite, siteOf } from '../shared/site-domain';
 import type { SocialAccountInfo } from '../shared/profiles';
 
 export interface CertificatePrompt {
@@ -244,11 +245,26 @@ export class SessionManager {
    * subdomains plus local/session storage, IndexedDB, cache storage and service workers
    * of the matching origins. Logs the profile out of that site.
    */
+  /** Sites with stored cookies in a profile, grouped by site (subdomains folded in), most cookies first. */
+  async listSiteData(profileId: string): Promise<Array<{ site: string; cookies: number; hosts: string[] }>> {
+    const bySite = new Map<string, { cookies: number; hosts: Set<string> }>();
+    for (const cookie of await this.getSession(profileId).cookies.get({})) {
+      const host = (cookie.domain || '').replace(/^\./, '').toLowerCase();
+      if (!host) continue;
+      const site = siteOf(host);
+      const entry = bySite.get(site) ?? { cookies: 0, hosts: new Set<string>() };
+      entry.cookies++;
+      entry.hosts.add(host);
+      bySite.set(site, entry);
+    }
+    return [...bySite].map(([site, e]) => ({ site, cookies: e.cookies, hosts: [...e.hosts].sort() }))
+      .sort((a, b) => b.cookies - a.cookies || a.site.localeCompare(b.site));
+  }
+
   async clearSiteData(profileId: string, domain: string): Promise<{ cookies: number; origins: string[] }> {
     const browserSession = this.getSession(profileId);
     const host = domain.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '').replace(/^www\./, '');
-    const matches = (value: string) => { const h = value.replace(/^\./, '').toLowerCase(); return h === host || h.endsWith('.' + host); };
-    const cookies = (await browserSession.cookies.get({})).filter(cookie => matches(cookie.domain || ''));
+    const cookies = (await browserSession.cookies.get({})).filter(cookie => belongsToSite(cookie.domain || '', host));
     const hosts = new Set([host, 'www.' + host, ...cookies.map(cookie => (cookie.domain || '').replace(/^\./, ''))]);
     for (const cookie of cookies) {
       const cookieHost = (cookie.domain || '').replace(/^\./, '');
