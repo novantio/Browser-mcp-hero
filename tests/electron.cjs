@@ -70,14 +70,14 @@ const path = require('node:path');
     assert.equal(await guest.getByRole('textbox', { name: 'Catatan' }).inputValue(), 'Tetap di tab ini');
     console.log('PASS switching tabs preserves live page state');
 
-    await window.getByRole('button', { name: 'Ruang kerja', exact: true }).click();
+    await window.locator('#toggle-panel').click();
     await window.waitForFunction(() => document.getElementById('side-panel').hidden);
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1050, 720));
     await window.waitForTimeout(250);
     const bounds = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].contentView.children.map(v => v.getBounds()));
     const surface = await window.locator('#browser-surface').boundingBox();
     assert.ok(bounds.some(b => Math.abs(b.width - surface.width) <= 1 && Math.abs(b.height - surface.height) <= 1));
-    await window.getByRole('button', { name: 'Ruang kerja', exact: true }).click();
+    await window.locator('#toggle-panel').click();
     await window.screenshot({ path: 'test-results/compact.png' });
     console.log('PASS panel toggle and native view resizing');
 

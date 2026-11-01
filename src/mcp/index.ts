@@ -21,6 +21,7 @@ export const CORE_TOOL_NAMES = new Set<string>([
   'browser_resume_task',
   'browser_list_profiles',
   'browser_get_profile_logins',
+  'browser_duplicate_profile',
 
   'browser_list_tabs',
   'browser_new_tab',

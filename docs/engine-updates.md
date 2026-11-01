@@ -47,3 +47,14 @@ Kedua tool tersedia pada preset **all** dan **automation**, tanpa harus membuat 
 Jalankan **npm test** dan **npm run test:e2e**. Untuk rangkaian uji lokal tanpa unduhan otomatis, atur **HERO_ENGINE_UPDATES=0** dan **HERO_ENGINE_HOME** ke direktori uji terpisah.
 
 Uji engine mencakup kegagalan verifikasi, pembatalan, pemilihan versi, checksum executable, penolakan entri arsip berbahaya, runtime nyata, panel updater, penyimpanan preferensi, dan kedua tool MCP. Uji antarmuka hanya menggunakan profil serta cookie sintetis. Variabel opsional **HERO_TEST_ENGINE** menerima path executable runtime baru untuk menguji upgrade profil sintetis dari engine bawaan.
+
+## Catatan perbaikan (November 2026)
+
+Sebelum perbaikan ini, pembaruan engine selalu gagal saat ekstraksi. Di dalam Electron, `node:fs` memperlakukan `*.asar` sebagai arsip, sehingga penulisan `resources/default_app.asar` gagal. File sekarang ditulis lewat `original-fs`, dan tes regresi `tests/engine-extract-electron.test.cjs` menjalankan ekstraksi di runtime Electron.
+
+Perubahan lain:
+- Pesan error asli ditampilkan di panel.
+- Percobaan yang gagal diulang dalam 30 menit, bukan 6 jam.
+- Folder staging hasil percobaan gagal dihapus otomatis, termasuk sisa percobaan lama.
+
+Kalau sebelumnya Anda mematikan **Unduh pembaruan stabil otomatis** karena update terus gagal, aktifkan lagi atau tekan **Periksa & unduh pembaruan**.

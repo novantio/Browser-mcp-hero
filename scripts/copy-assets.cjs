@@ -1,5 +1,6 @@
-const { cpSync, mkdirSync } = require('node:fs');
+const { cpSync, mkdirSync, readdirSync } = require('node:fs');
 mkdirSync('dist/ui/renderer', { recursive: true });
-for (const name of ['index.html', 'styles.css']) {
+// index.html plus every stylesheet (styles are split per area to stay small).
+for (const name of readdirSync('src/renderer').filter(file => file === 'index.html' || file.endsWith('.css'))) {
   cpSync(`src/renderer/${name}`, `dist/ui/renderer/${name}`);
 }

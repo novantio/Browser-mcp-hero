@@ -104,6 +104,25 @@ export class ProfileManager {
     this.store = next;
     return { ...profile };
   }
+  renameProfile(id: string, value: string): BrowserProfile {
+    this.requireProfile(id);
+    const name = validateProfileName(value);
+    if (this.store.profiles.some(p => p.id !== id && p.name.toLocaleLowerCase() === name.toLocaleLowerCase())) return fail('PROFILE_EXISTS', 'Nama profil sudah digunakan.');
+    const next = { ...this.store, profiles: this.store.profiles.map(p => (p.id === id ? { ...p, name } : p)) };
+    this.persist(next);
+    this.store = next;
+    return this.requireProfile(id);
+  }
+  /** Picks "<base> (salinan)", "<base> (salinan 2)", ... that is not taken yet. */
+  suggestCopyName(id: string): string {
+    const base = this.requireProfile(id).name.slice(0, 28);
+    const taken = new Set(this.store.profiles.map(p => p.name.toLocaleLowerCase()));
+    for (let n = 1; n < 50; n++) {
+      const candidate = n === 1 ? `${base} (salinan)` : `${base} (salinan ${n})`;
+      if (!taken.has(candidate.toLocaleLowerCase())) return candidate;
+    }
+    return `${base} ${Date.now() % 10000}`;
+  }
   switchProfile(id: string): void {
     this.requireProfile(id);
     const next = { ...this.store, activeProfileId: id };

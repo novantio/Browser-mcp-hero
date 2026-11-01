@@ -10,12 +10,18 @@ export function isWebUrl(value: string): boolean {
 export function isAuthHost(value: string): boolean {
   if (!value || !isWebUrl(value)) return false;
   try {
-    const host = new URL(value).hostname.toLowerCase();
+    const { hostname, pathname } = new URL(value);
+    const host = hostname.toLowerCase();
     return host === 'accounts.google.com' ||
            host.endsWith('.accounts.google.com') ||
            host === 'appleid.apple.com' ||
            host === 'login.microsoftonline.com' ||
-           host === 'login.live.com';
+           host === 'login.live.com' ||
+           host === 'access.line.me' ||
+           ((host === 'facebook.com' || host.endsWith('.facebook.com')) && /^\/(v[\d.]+\/)?dialog\/oauth|^\/login/.test(pathname)) ||
+           (['x.com', 'twitter.com', 'api.twitter.com', 'api.x.com'].includes(host) && /\/oauth2?(\/|$)|^\/i\/oauth2/.test(pathname)) ||
+           ((host === 'tiktok.com' || host.endsWith('.tiktok.com')) && /^\/(v2\/)?auth(\/|$)/.test(pathname)) ||
+           (host === 'github.com' && /^\/login(\/oauth)?(\/|$)/.test(pathname));
   } catch { return false; }
 }
 
@@ -26,11 +32,24 @@ export interface WindowOpenDetails {
   disposition?: string;
 }
 
+/** Query parameters that only appear on OAuth / "log in with ..." authorization URLs. */
+const OAUTH_PARAMS = ['client_id', 'redirect_uri', 'response_type', 'app_id', 'oauth_token'];
+
+/**
+ * Whether window.open should become a real child window (keeping window.opener) instead
+ * of a tab. Login flows post their result back to the opener; turning them into tabs,
+ * or dropping an about:blank window a script fills in later, makes the login fail.
+ */
 export function isPopupWindow(details: WindowOpenDetails): boolean {
+  if (!details.url || details.url === 'about:blank') return true;
   if (details.features && details.features.trim().length > 0) return true;
   if (details.disposition === 'new-window') return true;
   if (details.frameName && details.frameName !== '_blank') return true;
-  if (details.url && isAuthHost(details.url)) return true;
+  if (isAuthHost(details.url)) return true;
+  try {
+    const params = new URL(details.url).searchParams;
+    if (OAUTH_PARAMS.some(name => params.has(name))) return true;
+  } catch { /* Not a URL: handled by the caller's web-URL guard. */ }
   return false;
 }
 
@@ -106,6 +125,14 @@ export function parseCommand(value: unknown): BrowserCommand {
     return { action: data.action as 'switch-profile' | 'delete-profile', profileId: data.profileId };
   }
 
+  if (data.action === 'rename-profile' && typeof data.profileId === 'string' && /^[a-z0-9][a-z0-9-]{0,63}$/.test(data.profileId) &&
+      typeof data.name === 'string' && data.name.length <= 40 && keys.length === 3) {
+    return { action: 'rename-profile', profileId: data.profileId, name: data.name };
+  }
+  if (data.action === 'duplicate-profile' && typeof data.profileId === 'string' && /^[a-z0-9][a-z0-9-]{0,63}$/.test(data.profileId) &&
+      typeof data.name === 'string' && data.name.length <= 40 && typeof data.copyLogin === 'boolean' && keys.length === 4) {
+    return { action: 'duplicate-profile', profileId: data.profileId, name: data.name, copyLogin: data.copyLogin };
+  }
   if (data.action === 'share-session' && keys.length === 2 && Array.isArray(data.targetIds) &&
       data.targetIds.length > 0 && data.targetIds.length <= 20 &&
       data.targetIds.every(id => typeof id === 'string' && /^[a-z0-9][a-z0-9-]{0,63}$/.test(id)) &&

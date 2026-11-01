@@ -20,7 +20,8 @@ const { StdioClientTransport } = require('@modelcontextprotocol/sdk/client/stdio
  await new Promise(r=>server.listen(0,'127.0.0.1',r));
  const url='http://127.0.0.1:'+server.address().port;
  const userDataDir=mkdtempSync(path.resolve('test-results/automation-'));
- const env={...process.env,HERO_USER_DATA_DIR:userDataDir};delete env.ELECTRON_RUN_AS_NODE;
+ // Uses tools outside the default core preset.
+ const env={...process.env,HERO_USER_DATA_DIR:userDataDir,HERO_TOOL_PROFILE:'all'};delete env.ELECTRON_RUN_AS_NODE;
  let app,client;
  try {
   app=await electron.launch({args:['.','--user-data-dir='+userDataDir],env,timeout:30000});

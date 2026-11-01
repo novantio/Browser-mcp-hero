@@ -52,10 +52,10 @@ render();
     return app.context().pages().find(p => p.url() === target);
   }
   async function share(all = false) {
-    if (await window.locator('#share-options').isHidden()) await window.getByRole('button', { name: 'Share sesi', exact: true }).click();
+    if (await window.locator('#share-options').isHidden()) await window.locator('#toggle-share').click();
     if (all) await window.getByRole('button', { name: 'Pilih semua', exact: true }).click();
     else await window.getByRole('checkbox', { name: 'Instagram', exact: true }).check();
-    await window.getByRole('button', { name: 'Gunakan sesi bersama', exact: true }).click();
+    await window.locator('#apply-share').click();
     await idle();
   }
   async function close() {
@@ -88,7 +88,7 @@ render();
     await source.reload();
     await source.getByText('empty/empty', { exact: true }).waitFor();
     await select('instagram');
-    await window.getByRole('button', { name: 'Hentikan berbagi', exact: true }).click(); await idle();
+    await window.locator('#stop-sharing').click(); await idle();
     recipient = await navigate();
     await recipient.getByText('B/B', { exact: true }).waitFor();
     console.log('PASS logout affects the shared group; stopping share restores untouched private login');
@@ -114,7 +114,7 @@ render();
     await source.getByText('A/A', { exact: true }).waitFor();
     console.log('PASS shared source cannot be deleted and deleting a recipient preserves the source login');
 
-    await window.getByRole('button', { name: 'Hentikan berbagi', exact: true }).click(); await idle();
+    await window.locator('#stop-sharing').click(); await idle();
     await select('research');
     const independent = await navigate();
     await independent.getByText('empty/empty', { exact: true }).waitFor();

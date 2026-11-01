@@ -109,7 +109,7 @@ Kalau keempatnya berhasil, instalasi selesai.
 
 ## 6. Cara pakai yang disarankan
 
-Secara default hanya preset **core** (31 tool) yang aktif supaya hemat token. Tambah tool bila perlu dengan `browser_set_tool_preset` (`"automation"`, `"data"`, atau `"all"`), atau set env `HERO_TOOL_PROFILE=all` pada konfigurasi MCP.
+Secara default hanya preset **core** (32 tool) yang aktif supaya hemat token. Tambah tool bila perlu dengan `browser_set_tool_preset` (`"automation"`, `"data"`, atau `"all"`), atau set env `HERO_TOOL_PROFILE=all` pada konfigurasi MCP.
 
 Alur kerja dasar:
 
@@ -118,8 +118,9 @@ Alur kerja dasar:
 3. Untuk **mencari atau membaca informasi**, pakai `browser_read_text`. Hasilnya markdown ringkas ala lynx dengan tautan bernomor `[teks][n]` dan daftar URL di akhir. Untuk membuka tautan, panggil lagi dengan `url` dari daftar itu. Mode `fetch` tidak menjalankan JavaScript, jadi tetap jalan di halaman yang berat.
 4. Untuk **berinteraksi**, pakai `browser_navigate`, lalu `browser_observe` (elemen bernomor `[n]`; tombol kembar diberi `(dekat: ...)`), lalu `browser_act`, `browser_click` dengan `elementId`, atau `browser_fill_form` untuk formulir.
 5. Tambahkan `expect` (`{ "text": "..." }`, `{ "url": "..." }`, atau `{ "selector": "..." }`) pada navigate/click/act agar hasilnya terverifikasi dalam satu langkah.
-6. Ketemu CAPTCHA atau login manual: `browser_request_human_intervention`.
-7. Selesai: `browser_complete_task`.
+6. Ketemu CAPTCHA atau login manual: `browser_request_human_intervention`. Untuk situs dengan anti-fraud ketat (marketplace, bank), biarkan **manusia** yang login langsung di jendela Hero; percobaan login berulang oleh agent bisa membuat akun diblokir.
+7. **Profil:** `browser_duplicate_profile({ profileId, name })` membuat profil baru yang membawa cookie login profil asal (misal Google a1), `browser_rename_profile`, dan `browser_delete_profile({ profileId, confirm: true })` untuk membersihkan profil sementara. `browser_create_profile` tidak mengganti profil aktif manusia kecuali `switchTo: true`. Bila task berjalan di profil yang belum aktif, panggil `browser_switch_profile` dulu.
+8. Selesai: `browser_complete_task`.
 
 ## 7. Pemulihan saat ada masalah
 

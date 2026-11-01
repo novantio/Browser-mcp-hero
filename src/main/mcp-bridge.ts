@@ -14,9 +14,9 @@ import type { DataAnalysis } from './data/analysis';
 import type { InteractionRecorder } from './data/recorder';
 import { contractFor } from '../shared/mcp-contracts';
 import { dataContractFor } from '../shared/data-contracts';
-import { paginate } from './data/analysis';
 import { RpcError, publicError } from '../shared/rpc-error';
-import { redactText } from '../shared/redaction';
+import { dispatchDataMethod, NOT_DATA_METHOD } from './mcp-data-dispatch';
+import { runBrowserAction } from './mcp-browser-actions';
 
 import type { SessionManager } from './session-manager';
 import type { SocialAccountInfo } from '../shared/profiles';
@@ -245,173 +245,14 @@ export class McpBridge {
       reason: String(params.reason), message: String(params.message), timeoutMs: params.timeoutMs as number | undefined,
     });
 
-    // Data runtime methods
-    if (method === 'data.overview') {
-      if (!jobRunner) throw new RpcError('SERVICE_UNAVAILABLE', 'Data runtime belum aktif.');
-      return jobRunner.overview();
-    }
-    if (method === 'data.createJob') {
-      if (!jobRunner) throw new RpcError('SERVICE_UNAVAILABLE', 'Data runtime belum aktif.');
-      return jobRunner.createJob(params as any);
-    }
-    if (method === 'data.listJobs') {
-      if (!jobRunner) throw new RpcError('SERVICE_UNAVAILABLE', 'Data runtime belum aktif.');
-      return jobRunner.listJobs();
-    }
-    if (method === 'data.runJob') {
-      if (!jobRunner) throw new RpcError('SERVICE_UNAVAILABLE', 'Data runtime belum aktif.');
-      return await jobRunner.runJob(String(params.jobId));
-    }
-    if (method === 'data.pauseJob') {
-      if (!jobRunner) throw new RpcError('SERVICE_UNAVAILABLE', 'Data runtime belum aktif.');
-      return jobRunner.pauseJob(String(params.jobId));
-    }
-    if (method === 'data.resumeJob') {
-      if (!jobRunner) throw new RpcError('SERVICE_UNAVAILABLE', 'Data runtime belum aktif.');
-      return await jobRunner.resumeJob(String(params.jobId));
-    }
-    if (method === 'data.cancelJob') {
-      if (!jobRunner) throw new RpcError('SERVICE_UNAVAILABLE', 'Data runtime belum aktif.');
-      return jobRunner.cancelJob(String(params.jobId));
-    }
-    if (method === 'data.getJob') {
-      if (!jobRunner) throw new RpcError('SERVICE_UNAVAILABLE', 'Data runtime belum aktif.');
-      return jobRunner.getJob(String(params.jobId));
-    }
-    if (method === 'data.results') {
-      if (!jobRunner) throw new RpcError('SERVICE_UNAVAILABLE', 'Data runtime belum aktif.');
-      return jobRunner.getResults(params.jobId as string | undefined, params.offset as number | undefined, params.limit as number | undefined);
-    }
-    if (method === 'data.history') {
-      if (!jobRunner) throw new RpcError('SERVICE_UNAVAILABLE', 'Data runtime belum aktif.');
-      return jobRunner.getHistory(String(params.jobId), params.offset as number | undefined, params.limit as number | undefined);
-    }
-    if (method === 'data.changes') {
-      if (!jobRunner) throw new RpcError('SERVICE_UNAVAILABLE', 'Data runtime belum aktif.');
-      return jobRunner.getChanges(String(params.jobId), params.offset as number | undefined, params.limit as number | undefined);
-    }
-    if (method === 'data.compare') {
-      if (!analysis) throw new RpcError('SERVICE_UNAVAILABLE', 'Data runtime belum aktif.');
-      return analysis.compare(String(params.beforeId), String(params.afterId));
-    }
-    if (method === 'data.recordStart') {
-      if (!recorder) throw new RpcError('SERVICE_UNAVAILABLE', 'Recorder belum aktif.');
-      return await recorder.start(String(params.name));
-    }
-    if (method === 'data.recordStop') {
-      if (!recorder) throw new RpcError('SERVICE_UNAVAILABLE', 'Recorder belum aktif.');
-      return await recorder.stop();
-    }
-    if (method === 'data.recordList') {
-      if (!recorder) throw new RpcError('SERVICE_UNAVAILABLE', 'Recorder belum aktif.');
-      return recorder.list();
-    }
-    if (method === 'data.recordUpdate') {
-      if (!recorder) throw new RpcError('SERVICE_UNAVAILABLE', 'Recorder belum aktif.');
-      return recorder.update(String(params.recordingId), params.steps as any);
-    }
-    if (method === 'data.recordConvert') {
-      if (!recorder) throw new RpcError('SERVICE_UNAVAILABLE', 'Recorder belum aktif.');
-      return recorder.convert(String(params.recordingId), params.schema as any, String(params.name), (params.intervalMinutes as number | null) ?? null);
-    }
-    if (method === 'data.buildDataset') {
-      if (!analysis) throw new RpcError('SERVICE_UNAVAILABLE', 'Data runtime belum aktif.');
-      return analysis.build(params as any);
-    }
-    if (method === 'data.listDatasets') {
-      if (!analysis) throw new RpcError('SERVICE_UNAVAILABLE', 'Data runtime belum aktif.');
-      return analysis.store.list('dataset').map((d: any) => analysis!.summary(d));
-    }
-    if (method === 'data.quality') {
-      if (!analysis) throw new RpcError('SERVICE_UNAVAILABLE', 'Data runtime belum aktif.');
-      const d = analysis.store.get('dataset', String(params.datasetId)) as any;
-      return d.metrics;
-    }
-    if (method === 'data.datasetRows') {
-      if (!analysis) throw new RpcError('SERVICE_UNAVAILABLE', 'Data runtime belum aktif.');
-      const d = analysis.store.get('dataset', String(params.datasetId)) as any;
-      return paginate(d.rows, Number(params.offset || 0), Number(params.limit || 50));
-    }
-    if (method === 'data.exportDataset') {
-      if (!analysis) throw new RpcError('SERVICE_UNAVAILABLE', 'Data runtime belum aktif.');
-      return await analysis.export(String(params.datasetId), params.format as any);
-    }
-    if (method === 'data.search') {
-      if (!store) throw new RpcError('SERVICE_UNAVAILABLE', 'Data store belum aktif.');
-      return store.records(params as any);
-    }
-    if (method === 'data.entityCandidates') {
-      if (!analysis) throw new RpcError('SERVICE_UNAVAILABLE', 'Data runtime belum aktif.');
-      return analysis.candidates(String(params.alias));
-    }
-    if (method === 'data.entityLink') {
-      if (!analysis) throw new RpcError('SERVICE_UNAVAILABLE', 'Data runtime belum aktif.');
-      return analysis.link(params as any);
-    }
-    if (['data.get_activity_timeline', 'data.get_trends', 'data.detect_anomalies', 'data.compare_entities'].includes(method)) {
-      if (!analysis) throw new RpcError('SERVICE_UNAVAILABLE', 'Data runtime belum aktif.');
-      return analysis.analytics(params as any);
-    }
-    if (method === 'data.graph') {
-      if (!analysis) throw new RpcError('SERVICE_UNAVAILABLE', 'Data runtime belum aktif.');
-      return analysis.graph(params as any);
-    }
-    if (method === 'data.setEmbeddings') {
-      if (!analysis) throw new RpcError('SERVICE_UNAVAILABLE', 'Data runtime belum aktif.');
-      return analysis.embeddings(String(params.model), params.items as any);
-    }
-    if (method === 'data.semantic') {
-      if (!analysis) throw new RpcError('SERVICE_UNAVAILABLE', 'Data runtime belum aktif.');
-      return analysis.semantic(String(params.model), params.vector as any, Number(params.limit || 20));
-    }
-    if (method === 'data.networkRequests') {
-      if (!jobRunner) throw new RpcError('SERVICE_UNAVAILABLE', 'Data runtime belum aktif.');
-      return jobRunner.network.getRequests(String(params.filter || ''), params.limit ? Number(params.limit) : 50);
-    }
-    if (method === 'data.networkRecipe') {
-      if (!jobRunner) throw new RpcError('SERVICE_UNAVAILABLE', 'Data runtime belum aktif.');
-      return jobRunner.network.getRecipe(params.requestId ? String(params.requestId) : undefined);
-    }
-    if (method === 'data.networkReplay') {
-      if (!jobRunner) throw new RpcError('SERVICE_UNAVAILABLE', 'Data runtime belum aktif.');
-      return await jobRunner.network.replayRecipe(String(params.recipeId), (params.params as any) || {});
-    }
-    if (method === 'data.frontierPush') {
-      if (!jobRunner) throw new RpcError('SERVICE_UNAVAILABLE', 'Data runtime belum aktif.');
-      return jobRunner.frontier.push(params.urls as string[], Number(params.depth || 0), Number(params.priority || 50));
-    }
-    if (method === 'data.frontierPop') {
-      if (!jobRunner) throw new RpcError('SERVICE_UNAVAILABLE', 'Data runtime belum aktif.');
-      return jobRunner.frontier.popBatch(Number(params.limit || 10));
-    }
-    if (method === 'data.frontierStats') {
-      if (!jobRunner) throw new RpcError('SERVICE_UNAVAILABLE', 'Data runtime belum aktif.');
-      return jobRunner.frontier.getStats();
-    }
-    if (method === 'data.reviewList') {
-      if (!jobRunner) throw new RpcError('SERVICE_UNAVAILABLE', 'Data runtime belum aktif.');
-      return jobRunner.reviewQueue.listItems((params.status as any) || 'pending', Number(params.limit || 50));
-    }
-    if (method === 'data.reviewResolve') {
-      if (!jobRunner) throw new RpcError('SERVICE_UNAVAILABLE', 'Data runtime belum aktif.');
-      return jobRunner.reviewQueue.resolveItem(String(params.reviewId), params.resolution as any, params.editedData as any);
-    }
-    if (method === 'data.lineage') {
-      if (!store) throw new RpcError('SERVICE_UNAVAILABLE', 'Data store belum aktif.');
-      return store.getLineage(String(params.recordId));
-    }
-    if (method === 'data.checkDrift') {
-      if (!jobRunner || !store) throw new RpcError('SERVICE_UNAVAILABLE', 'Data runtime belum aktif.');
-      const latestSnaps = store.list<any>('snapshot').filter((s: any) => s.jobId === String(params.jobId)) || [];
-      const rows = latestSnaps.length > 0 ? latestSnaps[0].rows : [];
-      return jobRunner.drift.checkDrift(String(params.jobId), params.schema as any, rows);
-    }
+    const dataResult = await dispatchDataMethod(this.config, method, params);
+    if (dataResult !== NOT_DATA_METHOD) return dataResult;
 
     if (['data.extractSchema', 'data.discover', 'data.extractMultiStrategy', 'data.collect', 'data.healSelector', 'data.copilotSynthesize'].includes(method)) {
       if (this.browserBusy) throw new RpcError('BROWSER_BUSY', 'Tunggu operasi browser yang sedang berjalan.');
       const task = tasks.assertRunnable(taskId);
       if (profiles.activeProfileId !== task.profileId) {
-        throw new RpcError('TASK_PROFILE_MISMATCH', 'Aktifkan profil milik tugas sebelum menjalankan perintah.');
+        throw new RpcError('TASK_PROFILE_MISMATCH', 'Profil task belum aktif di jendela browser. Panggil browser_switch_profile { taskId, profileId } dulu, lalu ulangi perintah.');
       }
       const signal = AbortSignal.any([requestSignal, tasks.signal(taskId)]);
       signal.throwIfAborted();
@@ -443,18 +284,19 @@ export class McpBridge {
 
     if (this.browserBusy) throw new RpcError('BROWSER_BUSY', 'Tunggu operasi browser yang sedang berjalan.');
     let signal = requestSignal;
-    if (method !== 'profiles.create') {
+    // Profile housekeeping is not tied to a task; ProfileManager still refuses locked profiles.
+    if (!['profiles.create', 'profiles.duplicate', 'profiles.rename', 'profiles.delete'].includes(method)) {
       const task = tasks.assertRunnable(taskId);
       if (method === 'profiles.switch') {
         if (params.profileId !== task.profileId) throw new RpcError('TASK_PROFILE_MISMATCH', 'Profil tujuan bukan milik tugas ini.');
       } else if (profiles.activeProfileId !== task.profileId) {
-        throw new RpcError('TASK_PROFILE_MISMATCH', 'Aktifkan profil milik tugas sebelum menjalankan perintah.');
+        throw new RpcError('TASK_PROFILE_MISMATCH', 'Profil task belum aktif di jendela browser. Panggil browser_switch_profile { taskId, profileId } dulu, lalu ulangi perintah.');
       }
       signal = AbortSignal.any([requestSignal, tasks.signal(taskId)]);
     }
     signal.throwIfAborted();
     this.browserBusy = true;
-    const work = this.browserAction(method, params, signal);
+    const work = runBrowserAction(this.config, method, params, signal);
     // Keep the gate until a dispatched action actually settles. Cancellation
     // cannot undo a click already delivered to a page.
     void work.finally(() => { this.browserBusy = false; }).catch(() => {});
@@ -463,252 +305,6 @@ export class McpBridge {
       if (requestSignal.aborted && tasks.getTask(taskId)?.status === 'RUNNING') tasks.cancelTask(taskId);
       throw error;
     }
-  }
-
-  private async browserAction(method: string, p: Record<string, unknown>, signal: AbortSignal): Promise<unknown> {
-    const { browser, profiles, tasks } = this.config;
-    const taskId = String(p.taskId || '');
-    const tabs = () => browser.snapshot().tabs.map(tab => ({
-      ...tab,
-      url: redactText(tab.url),
-      error: tab.error ? 'Halaman gagal dimuat.' : null,
-      certificateWarning: tab.certificateWarning ? { requestId: tab.certificateWarning.requestId, host: redactText(tab.certificateWarning.host), url: redactText(tab.certificateWarning.url) } : tab.certificateWarning ?? null,
-    }));
-
-    const tabId = String(p.tabId || '');
-    if (['tabs.close', 'tabs.switch'].includes(method) && !browser.snapshot().tabs.some(t => t.id === tabId))
-      throw new RpcError('TAB_NOT_FOUND', 'Tab tidak ada pada profil tugas.');
-    switch (method) {
-      case 'profiles.create': browser.createProfile(String(p.name)); return { activeProfileId: profiles.activeProfileId };
-      case 'profiles.switch': browser.switchProfile(String(p.profileId)); return { activeProfileId: profiles.activeProfileId };
-      case 'tabs.list': return tabs();
-      case 'tabs.new':
-        browser.newTab(); if (p.url) browser.execute({ action: 'navigate', input: String(p.url) }); return tabs();
-      case 'tabs.close': browser.execute({ action: 'close-tab', tabId }); return tabs();
-      case 'tabs.switch': browser.execute({ action: 'switch-tab', tabId }); return tabs();
-      case 'tabs.navigate': {
-        const targetUrl = String(p.url);
-        const resolvedUrl = typeof (browser as any).navigateToUrl === 'function'
-          ? await (browser as any).navigateToUrl(targetUrl, signal)
-          : (() => { browser.execute({ action: 'navigate', input: targetUrl }); return targetUrl; })();
-        const activeTab = browser.snapshot().tabs.find(t => t.id === browser.snapshot().activeTabId);
-        const certWarning = activeTab?.certificateWarning ?? null;
-        if (certWarning) {
-          return {
-            url: redactText(String(resolvedUrl)),
-            status: 'certificate_warning',
-            certificateWarning: { host: redactText(certWarning.host) },
-            hint: 'Sertifikat TLS tidak valid. Setujui lewat UI Hero Browser untuk melanjutkan.',
-          };
-        }
-        if (p.expect) {
-          const verified = await browser.verifyCondition(browser.getActiveWebContents(), p.expect as any, signal);
-          return { url: redactText(String(resolvedUrl)), status: verified ? 'verified' : 'unverified' };
-        }
-        return { url: redactText(String(resolvedUrl)) };
-      }
-      case 'tabs.reload':
-        return await browser.reloadTab({ hard: p.hard as boolean | undefined, force: p.force as boolean | undefined }, signal);
-      case 'tabs.back': browser.execute({ action: 'back' }); break;
-      case 'tabs.forward': browser.execute({ action: 'forward' }); break;
-      case 'automation.observe':
-        return await browser.observe({ maxLength: p.maxLength as number | undefined, format: p.format as 'text' | 'json' | 'both' | undefined });
-      case 'automation.readText': {
-        const page = await browser.readText({
-          url: p.url as string | undefined, source: p.source as 'auto' | 'fetch' | 'live' | undefined,
-          maxLength: p.maxLength as number | undefined, mainOnly: p.mainOnly as boolean | undefined, includeLinks: p.includeLinks as boolean | undefined,
-        }, signal);
-        return { ...page, url: redactText(page.url) };
-      }
-      case 'automation.click':
-        if (Number(Boolean(p.selector)) + Number(Boolean(p.text)) + Number(p.elementId !== undefined) !== 1)
-          throw new RpcError('INVALID_INPUT', 'Berikan tepat satu target klik.');
-        return (await browser.click({ elementId: p.elementId as number | undefined, selector: p.selector as string | undefined, text: p.text as string | undefined, expect: p.expect as any }, signal)) || { ok: true };
-      case 'automation.type':
-        if (Number(Boolean(p.selector)) + Number(p.elementId !== undefined) !== 1)
-          throw new RpcError('INVALID_INPUT', 'Berikan tepat satu target ketik.');
-        return (await browser.type(p.elementId !== undefined ? { elementId: p.elementId as number } : String(p.selector), String(p.text), { clear: Boolean(p.clear), pressEnter: Boolean(p.pressEnter), expect: p.expect as any }, signal)) || { ok: true };
-      case 'automation.selectOption':
-        if (Number(Boolean(p.selector)) + Number(p.elementId !== undefined) !== 1)
-          throw new RpcError('INVALID_INPUT', 'Berikan tepat satu target select.');
-        return (await browser.selectOption(
-          p.elementId !== undefined ? { elementId: p.elementId as number } : { selector: String(p.selector) },
-          { value: p.value as string | undefined, text: p.text as string | undefined, index: p.index as number | undefined, expect: p.expect as any },
-          signal
-        )) || { ok: true };
-      case 'automation.check':
-        if (Number(Boolean(p.selector)) + Number(p.elementId !== undefined) !== 1)
-          throw new RpcError('INVALID_INPUT', 'Berikan tepat satu target checkbox.');
-        return (await browser.setCheckbox(
-          p.elementId !== undefined ? { elementId: p.elementId as number } : { selector: String(p.selector) },
-          p.checked !== undefined ? Boolean(p.checked) : true,
-          { expect: p.expect as any },
-          signal
-        )) || { ok: true };
-      case 'automation.hover':
-        if (Number(Boolean(p.selector)) + Number(Boolean(p.text)) + Number(p.elementId !== undefined) !== 1)
-          throw new RpcError('INVALID_INPUT', 'Berikan tepat satu target hover.');
-        await browser.hover({ elementId: p.elementId as number | undefined, selector: p.selector as string | undefined, text: p.text as string | undefined }, signal);
-        break;
-      case 'automation.pressKey': await browser.pressKey(String(p.key), signal); break;
-      case 'automation.getDOM': return browser.getDOM({ format: p.format as 'text' | 'html' | 'outline' | undefined, maxLength: p.maxLength as number | undefined });
-      case 'automation.inspectForm':
-        return await browser.inspectForm({
-          formSelector: p.formSelector as string | undefined,
-          formElementId: p.formElementId as number | undefined,
-        });
-      case 'automation.fillForm':
-        return await browser.fillForm({
-          formSelector: p.formSelector as string | undefined,
-          formElementId: p.formElementId as number | undefined,
-          fields: (p.fields as Record<string, string | number | boolean>) || {},
-          submit: p.submit as boolean | undefined,
-          validate: p.validate as boolean | undefined,
-        }, signal);
-      case 'automation.findElement':
-        return await browser.findElement({
-          query: String(p.query || ''),
-          role: p.role as string | undefined,
-          tag: p.tag as string | undefined,
-          maxResults: p.maxResults as number | undefined,
-        });
-      case 'automation.getState':
-        return await browser.getState();
-      case 'automation.extract': return browser.extract(String(p.selector), p.maxItems as number | undefined);
-      case 'automation.screenshot':
-        return await browser.captureScreenshot({
-          elementId: p.elementId as number | undefined,
-          selector: p.selector as string | undefined,
-          region: p.region as { x: number; y: number; width: number; height: number } | undefined,
-        });
-      case 'automation.getConsoleLogs':
-        return browser.getConsoleLogs({
-          level: p.level as 'info' | 'warn' | 'error' | 'debug' | 'all' | undefined,
-          limit: p.limit as number | undefined,
-          clear: p.clear as boolean | undefined,
-        });
-      case 'automation.getNetworkActivity':
-        return browser.getNetworkActivity({
-          filter: p.filter as string | undefined,
-          onlyFailed: p.onlyFailed as boolean | undefined,
-          limit: p.limit as number | undefined,
-        });
-      case 'automation.waitFor': {
-        const primaryConditions = [p.ms, p.selector, p.text, p.networkIdle, p.expression].filter(v => v !== undefined && v !== false);
-        if (primaryConditions.length !== 1) {
-          throw new RpcError('INVALID_INPUT', 'Berikan tepat satu kondisi tunggu (ms, selector, text, networkIdle, atau expression).');
-        }
-        if (p.state !== undefined && p.selector === undefined) {
-          throw new RpcError('INVALID_INPUT', 'Parameter state hanya berlaku ketika selector ditentukan.');
-        }
-        return browser.waitFor({
-          ms: p.ms as number | undefined,
-          selector: p.selector as string | undefined,
-          text: p.text as string | undefined,
-          state: p.state as 'visible' | 'hidden' | 'attached' | 'detached' | undefined,
-          networkIdle: p.networkIdle ? Boolean(p.networkIdle) : undefined,
-          expression: p.expression as string | undefined,
-          timeoutMs: p.timeoutMs as number | undefined,
-        }, signal);
-      }
-      case 'automation.scroll': await browser.scroll({ direction: p.direction as 'up' | 'down' | 'top' | 'bottom' | undefined, amount: p.amount as number | undefined }); break;
-      case 'automation.evaluate': return await browser.evaluateSafe(String(p.script));
-      case 'browser.setVisibility': browser.setVisibility(Boolean(p.visible)); break;
-      case 'automation.healSelector':
-        return await browser.healSelector(
-          String(p.selector),
-          p.previousTag as string | undefined,
-          p.contextSnippet as string | undefined
-        );
-      case 'automation.detectChallenge': {
-        const result = await browser.detectChallenge();
-        if (result.detected && p.autoIntervene && taskId) {
-          const req = tasks.requestHumanIntervention(taskId, {
-            reason: `Tantangan Keamanan (${result.provider || 'CAPTCHA'}) Terdeteksi`,
-            message: result.details || 'Tantangan keamanan (CAPTCHA TikTok/Cloudflare/dll) terdeteksi di browser. Silakan selesaikan tantangan di layar browser, lalu klik Lanjutkan.',
-          });
-          return {
-            ...result,
-            status: 'human_required',
-            taskId: req.taskId,
-            resumeToken: req.resumeToken,
-          };
-        }
-        return result;
-      }
-      case 'automation.uploadFile':
-        if (Number(Boolean(p.selector)) + Number(p.elementId !== undefined) !== 1) {
-          throw new RpcError('INVALID_INPUT', 'Berikan tepat satu target upload.');
-        }
-        return await browser.uploadFile(
-          { elementId: p.elementId as number | undefined, selector: p.selector as string | undefined },
-          p.filePaths as string[]
-        );
-      case 'automation.waitForDownload':
-        return await browser.waitForDownload(
-          { timeoutMs: p.timeoutMs as number | undefined, fileNamePattern: p.fileNamePattern as string | undefined },
-          signal
-        );
-      case 'automation.createCheckpoint':
-        return await browser.createCheckpoint(p.name as string | undefined);
-      case 'automation.rollbackCheckpoint':
-        return await browser.rollbackCheckpoint(String(p.name), signal);
-      case 'automation.act': {
-        const actRes = await browser.act(p as any, signal);
-        if (actRes.challengeDetected && p.autoChallengeIntervention !== false && taskId) {
-          try {
-            const req = tasks.requestHumanIntervention(taskId, {
-              reason: `Tantangan Bot / CAPTCHA Terdeteksi saat Aksi`,
-              message: actRes.message || 'Tantangan bot/CAPTCHA terdeteksi di layar. Silakan selesaikan CAPTCHA di browser lalu klik Lanjutkan.',
-            });
-            return {
-              ...actRes,
-              status: 'human_required',
-              resumeToken: req.resumeToken,
-              message: `${actRes.message} Tugas dialihkan ke intervensi manusia (human_required). Pengguna sedang menyelesaikan CAPTCHA di browser.`,
-            };
-          } catch {
-            // ignore if task is already in intervention or completed
-          }
-        }
-        return actRes;
-      }
-
-      case 'cookies.get':
-        return await browser.getCookies({
-          url: p.url as string | undefined,
-          name: p.name as string | undefined,
-          domain: p.domain as string | undefined,
-        });
-      case 'cookies.set':
-        return await browser.setCookie({
-          url: p.url as string | undefined,
-          name: String(p.name),
-          value: String(p.value),
-          domain: p.domain as string | undefined,
-          path: p.path as string | undefined,
-          secure: p.secure as boolean | undefined,
-          httpOnly: p.httpOnly as boolean | undefined,
-          sameSite: p.sameSite as any,
-          expirationDate: p.expirationDate as number | undefined,
-        });
-      case 'storage.get':
-        return await browser.getStorage({
-          type: (p.type as 'local' | 'session') || 'local',
-          key: p.key as string | undefined,
-        });
-      case 'storage.set':
-        return await browser.setStorage({
-          type: (p.type as 'local' | 'session') || 'local',
-          action: (p.action as 'set' | 'remove' | 'clear') || 'set',
-          key: p.key as string | undefined,
-          value: p.value !== undefined ? String(p.value) : undefined,
-        });
-      case 'automation.dragAndDrop':
-        return await browser.dragAndDrop(p as any, signal);
-      default: throw new RpcError('UNKNOWN_METHOD', 'Metode tidak tersedia.');
-    }
-    return { ok: true };
   }
   stop(): void {
     for (const controller of this.requests) controller.abort(new RpcError('CANCELLED', 'Browser ditutup.'));

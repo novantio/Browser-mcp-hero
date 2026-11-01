@@ -105,4 +105,15 @@ test('identifies auth hosts and popup windows correctly', () => {
   // Regular link clicked with target _blank
   assert.equal(isPopupWindow({ url: 'https://example.com', frameName: '', features: '', disposition: 'foreground-tab' }), false);
   assert.equal(isPopupWindow({ url: 'https://example.com', frameName: '_blank', features: '', disposition: 'foreground-tab' }), false);
+  // Login windows must keep window.opener (e.g. Shopee/Facebook/X "log in with" flows).
+  assert.equal(isPopupWindow({ url: '', disposition: 'foreground-tab' }), true, 'empty window filled in by script');
+  assert.equal(isPopupWindow({ url: 'about:blank', disposition: 'foreground-tab' }), true);
+  assert.equal(isPopupWindow({ url: 'https://www.facebook.com/v19.0/dialog/oauth?client_id=1&redirect_uri=x', disposition: 'foreground-tab' }), true);
+  assert.equal(isPopupWindow({ url: 'https://shop.example/connect?app_id=9&redirect_uri=https%3A%2F%2Fshop.example', disposition: 'foreground-tab' }), true);
+  assert.equal(isPopupWindow({ url: 'https://x.com/i/oauth2/authorize?response_type=code', disposition: 'foreground-tab' }), true);
+  assert.equal(isPopupWindow({ url: 'https://en.wikipedia.org/wiki/OAuth', disposition: 'foreground-tab' }), false, 'articles about OAuth stay tabs');
+  assert.equal(isAuthHost('https://www.facebook.com/dialog/oauth'), true);
+  assert.equal(isAuthHost('https://www.facebook.com/somepage'), false);
+  assert.equal(isAuthHost('https://www.tiktok.com/v2/auth/authorize/'), true);
+  assert.equal(isAuthHost('https://github.com/login/oauth/authorize'), true);
 });

@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { createReadStream, createWriteStream, mkdirSync, statSync } from 'node:fs';
+import { createReadStream, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { spawn } from 'node:child_process';
@@ -7,12 +7,17 @@ import { openPromise } from 'yauzl';
 import type { EngineSelection } from '../shared/engine-update';
 import { stableVersion } from './engine-selection';
 
+// Inside Electron, node:fs treats *.asar files as archives, so writing
+// resources/default_app.asar through it fails and every update aborted mid-extract.
+// original-fs is the unpatched module; plain Node (tests, launcher) has no asar support.
+const writeFs: typeof import('node:fs') = process.versions.electron ? require('original-fs') : require('node:fs');
+
 export async function latestStable(signal:AbortSignal):Promise<string>{
  const response=await fetch('https://api.github.com/repos/electron/electron/releases/latest',{
   signal:AbortSignal.any([signal,AbortSignal.timeout(20000)]),
   headers:{Accept:'application/vnd.github+json','User-Agent':'Hero-Browser-Engine-Updater'},
  });
- if(!response.ok)throw new Error('Release feed unavailable');
+ if(!response.ok)throw new Error(response.status===403||response.status===429?'GitHub membatasi permintaan (rate limit); coba lagi nanti':'Feed rilis tidak tersedia (HTTP '+response.status+')');
  const raw=await response.text();if(raw.length>1000000)throw new Error('Release feed too large');
  const data:unknown=JSON.parse(raw);
  if(!data||typeof data!=='object'||!('tag_name'in data)||typeof data.tag_name!=='string'||
@@ -42,7 +47,7 @@ export async function extractEngine(zipPath:string,destination:string,signal:Abo
    if(entry.fileName.endsWith('/')){mkdirSync(target,{recursive:true});continue;}
    mkdirSync(path.dirname(target),{recursive:true});
    const source=await zip.openReadStreamPromise(entry);
-   await pipeline(source,createWriteStream(target,{flags:'wx'}),{signal});
+   await pipeline(source,writeFs.createWriteStream(target,{flags:'wx'}),{signal});
   }
  }finally{zip.close();}
 }
@@ -75,6 +80,7 @@ export async function prepareEngine(version:string,directory:string,smokeScript:
  if(process.platform!=='win32'||!['x64','arm64'].includes(process.arch)||!stableVersion(version))throw new Error('Unsupported engine target');
  mkdirSync(directory,{recursive:true});
  mkdirSync(path.join(directory,'downloads-temp'),{recursive:true});
+ pruneStaging(directory);
  const {downloadArtifact}=await import('@electron/get');
  const zip=await downloadArtifact({
   version,artifactName:'electron',platform:'win32',arch:process.arch,
@@ -92,11 +98,28 @@ export async function prepareEngine(version:string,directory:string,smokeScript:
  if(statSync(zip).size>600000000)throw new Error('Download too large');
  const name='electron-'+version+'-win32-'+process.arch+'-'+randomUUID();
  const staging=path.join(directory,name);
- await extractEngine(zip,staging,signal);
- const executable=path.join(staging,'electron.exe');
- const result=await smokeEngine(executable,smokeScript,path.join(staging,'smoke-profile'),version,signal);
- signal.throwIfAborted();
- const digest=createHash('sha256');
- for await(const chunk of createReadStream(executable))digest.update(chunk as Buffer);
- return {version,chromium:result.chromium,platform:process.platform,arch:process.arch,directory:name,executableSha256:digest.digest('hex'),verifiedAt:Date.now()};
+ try{
+  await extractEngine(zip,staging,signal);
+  const executable=path.join(staging,'electron.exe');
+  const result=await smokeEngine(executable,smokeScript,path.join(staging,'smoke-profile'),version,signal);
+  signal.throwIfAborted();
+  const digest=createHash('sha256');
+  for await(const chunk of createReadStream(executable))digest.update(chunk as Buffer);
+  return {version,chromium:result.chromium,platform:process.platform,arch:process.arch,directory:name,executableSha256:digest.digest('hex'),verifiedAt:Date.now()};
+ }catch(error){
+  // A half-extracted engine is ~360 MB and can never be selected; do not keep it.
+  try{writeFs.rmSync(staging,{recursive:true,force:true});}catch{/* Locked by antivirus; pruned next time. */}
+  throw error;
+ }
 }
+
+/** Removes staging folders from earlier attempts, keeping only the engine selected in active.json. */
+export function pruneStaging(directory:string):void{
+ let keep='';
+ try{keep=JSON.parse(readFileSafe(path.join(directory,'active.json'))).directory||'';}catch{/* No active engine yet. */}
+ for(const entry of readdirSync(directory,{withFileTypes:true})){
+  if(!entry.isDirectory()||entry.name===keep||!/^electron-\d+\.\d+\.\d+-win32-(x64|arm64)-[0-9a-f-]{36}$/.test(entry.name))continue;
+  try{writeFs.rmSync(path.join(directory,entry.name),{recursive:true,force:true});}catch{/* In use; retry on the next attempt. */}
+ }
+}
+function readFileSafe(file:string):string{return writeFs.readFileSync(file,'utf8');}

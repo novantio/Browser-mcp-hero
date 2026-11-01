@@ -56,6 +56,8 @@ export type BrowserCommand =
   | { action: 'share-session'; targetIds: string[] }
   | { action: 'create-profile'; name: string }
   | { action: 'switch-profile' | 'delete-profile'; profileId: string }
+  | { action: 'rename-profile'; profileId: string; name: string }
+  | { action: 'duplicate-profile'; profileId: string; name: string; copyLogin: boolean }
   | { action: 'close-tab' | 'switch-tab'; tabId: string }
   | { action: 'navigate'; input: string }
   | { action: 'back' | 'forward' | 'reload' | 'stop' | 'home' }
@@ -107,6 +109,8 @@ export interface BrowserAPI {
   getMcpConfig?(): Promise<McpIntegrationConfig>;
   copyToClipboard?(text: string): Promise<boolean>;
   onOpenMcpModal?(listener: () => void): () => void;
+  /** Menu shortcuts that must work while a web page has keyboard focus. */
+  onMenuAction?(listener: (action: 'toggle-panel' | 'manage-profiles') => void): () => void;
   dataOverview?(): Promise<Record<string, unknown>>;
   dataJobs?(): Promise<unknown[]>;
   dataDatasets?(): Promise<unknown[]>;

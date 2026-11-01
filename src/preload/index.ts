@@ -33,6 +33,11 @@ const api: BrowserAPI = {
     ipcRenderer.on('browser:open-mcp-modal', handler);
     return () => ipcRenderer.removeListener('browser:open-mcp-modal', handler);
   },
+  onMenuAction(listener) {
+    const handler = (_event: Electron.IpcRendererEvent, action: 'toggle-panel' | 'manage-profiles') => listener(action);
+    ipcRenderer.on('browser:menu-action', handler);
+    return () => ipcRenderer.removeListener('browser:menu-action', handler);
+  },
   dataOverview: () => ipcRenderer.invoke('data:overview'),
   dataJobs: () => ipcRenderer.invoke('data:jobs'),
   dataDatasets: () => ipcRenderer.invoke('data:datasets'),

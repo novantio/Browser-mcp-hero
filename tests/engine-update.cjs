@@ -10,7 +10,8 @@ const { StdioClientTransport } = require('@modelcontextprotocol/sdk/client/stdio
   const root = mkdtempSync(path.resolve('test-results/engine-ui-'));
   const userData = path.join(root, 'profiles');
   const engineHome = path.join(root, 'engines');
-  const env = { ...process.env, HERO_ENGINE_UPDATES: '0', HERO_ENGINE_HOME: engineHome, HERO_USER_DATA_DIR: userData };
+  // Engine tools are outside the default core preset.
+  const env = { ...process.env, HERO_ENGINE_UPDATES: '0', HERO_ENGINE_HOME: engineHome, HERO_USER_DATA_DIR: userData, HERO_TOOL_PROFILE: 'all' };
   delete env.ELECTRON_RUN_AS_NODE;
   let app, client;
   const errors = [];

@@ -56,13 +56,15 @@ export class EngineUpdater {
    const latest=await this.options.latest(signal);
    if(!stableVersion(latest))throw new Error('Invalid stable release');
    signal.throwIfAborted();
-   this.set({latestElectron:latest,lastCheckedAt:Date.now()});this.save();
+   // lastCheckedAt is saved only once the check really succeeds (ready / up to date);
+   // saving it here made a failed download wait 6 hours before the next retry.
+   this.set({latestElectron:latest});
    const ready=readSelection(this.options.directory);
    if(ready&&compareVersions(ready.version,this.state.currentElectron)>0&&compareVersions(ready.version,latest)>=0&&selectedExecutable(this.options.directory,this.state.currentElectron)){
-    this.set({status:'ready',readyElectron:ready.version,message:'Engine baru siap untuk peluncuran berikutnya.'});return this.snapshot();
+    this.set({status:'ready',readyElectron:ready.version,lastCheckedAt:Date.now(),message:'Engine baru siap untuk peluncuran berikutnya.'});this.save();return this.snapshot();
    }
    if(compareVersions(latest,this.state.currentElectron)<=0){
-    this.set({status:'up_to_date',message:'Engine yang berjalan sudah setara atau lebih baru dari rilis stabil.'});return this.snapshot();
+    this.set({status:'up_to_date',lastCheckedAt:Date.now(),message:'Engine yang berjalan sudah setara atau lebih baru dari rilis stabil.'});this.save();return this.snapshot();
    }
    this.set({status:'downloading',progress:0,message:'Mengunduh engine resmi; sesi yang terbuka tetap berjalan.'});
    const selection=await this.options.prepare(latest,signal,(status,progress)=>{
@@ -72,9 +74,11 @@ export class EngineUpdater {
    signal.throwIfAborted();
    if(!parseSelection(selection)||selection.version!==latest)throw new Error('Version mismatch');
    writeAtomic(path.join(this.options.directory,'active.json'),selection);
-   this.set({status:'ready',readyElectron:latest,progress:100,message:'Siap. Engine baru dipakai saat Hero Browser dibuka kembali melalui peluncur.'});
-  }catch{
-   this.set({status:'error',progress:null,message:this.controller.signal.aborted?'Pembaruan dihentikan. Engine lama dan data login tetap tersedia.':'Pembaruan belum berhasil. Engine lama tetap digunakan; coba periksa lagi.'});
+   this.set({status:'ready',readyElectron:latest,progress:100,lastCheckedAt:Date.now(),message:'Siap. Engine baru dipakai saat Hero Browser dibuka kembali melalui peluncur.'});this.save();
+  }catch(error){
+   // Show the actual reason; a generic message hid that every attempt failed the same way.
+   const reason=error instanceof Error&&error.message?error.message.replace(/[A-Za-z]:\\[^\s'"]*/g,'<path>').slice(0,160):'kesalahan tidak dikenal';
+   this.set({status:'error',progress:null,message:this.controller.signal.aborted?'Pembaruan dihentikan. Engine lama dan data login tetap tersedia.':'Pembaruan belum berhasil ('+reason+'). Engine lama tetap digunakan; dicoba lagi otomatis dalam 30 menit.'});
   }finally{this.controller=null;}
   return this.snapshot();
  }

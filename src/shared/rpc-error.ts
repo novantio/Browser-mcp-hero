@@ -13,6 +13,10 @@ export function publicError(error: unknown): { code: string; message: string; st
   }
   if (error instanceof Error && 'code' in error && error.code === 'PROFILE_BUSY')
     return { code: 'PROFILE_BUSY', message: 'Sesi sedang digunakan tugas lain.' };
+  // ProfileManager messages are fixed, user-facing strings (no URLs or secrets): pass them on
+  // so an agent learns e.g. "name already used" instead of a generic failure.
+  if (error instanceof Error && error.name === 'ProfileError' && 'code' in error && typeof error.code === 'string')
+    return { code: error.code, message: error.message };
   // Page errors can contain URLs, selectors or credentials. Do not echo them.
   return { code: 'OPERATION_FAILED', message: 'Operasi gagal. Periksa halaman dan parameter, lalu coba kembali jika aman.' };
 }

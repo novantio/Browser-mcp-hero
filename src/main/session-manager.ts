@@ -186,6 +186,39 @@ export class SessionManager {
   }
 
 
+  /**
+   * Copies every cookie (this is what carries Google and most site logins) from one
+   * profile's session into another, independent one. localStorage/IndexedDB are not
+   * copied. Returns how many cookies were written.
+   */
+  async copyCookies(fromProfileId: string, toProfileId: string): Promise<{ copied: number; failed: number }> {
+    const source = this.getSession(fromProfileId);
+    const target = this.getSession(toProfileId);
+    await source.cookies.flushStore();
+    const cookies = await source.cookies.get({});
+    let copied = 0, failed = 0;
+    for (const cookie of cookies) {
+      const host = (cookie.domain || '').replace(/^\./, '');
+      if (!host) { failed++; continue; }
+      // __Host- cookies must be set without a Domain attribute; host-only cookies too.
+      const hostOnly = cookie.hostOnly || cookie.name.startsWith('__Host-');
+      try {
+        await target.cookies.set({
+          url: (cookie.secure ? 'https://' : 'http://') + host + (cookie.path || '/'),
+          name: cookie.name, value: cookie.value, path: cookie.path,
+          ...(hostOnly ? {} : { domain: cookie.domain }),
+          secure: cookie.secure, httpOnly: cookie.httpOnly,
+          sameSite: cookie.sameSite,
+          ...(cookie.session || cookie.expirationDate === undefined ? {} : { expirationDate: cookie.expirationDate }),
+        });
+        copied++;
+      } catch { failed++; }
+    }
+    await target.cookies.flushStore();
+    this.socialCache.delete(this.profiles.getSessionProfileId(toProfileId));
+    return { copied, failed };
+  }
+
   async flush(): Promise<void> {
     await Promise.all([...this.sessions.values()].map(async browserSession => {
       browserSession.flushStorageData();

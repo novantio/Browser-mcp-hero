@@ -126,6 +126,14 @@ docs/architecture.md    Arsitektur dan roadmap
 
 Electron 44.2.0, TypeScript 7.0.2, Playwright 1.63.0. Dependensi dikunci di `package-lock.json`.
 
+## Kelola profil: duplikat login, ganti nama, hapus
+
+Klik **⚙ Kelola** di kanan atas (atau Ctrl+Shift+P). Setiap profil punya tombol **Pakai**, **Duplikat…**, **Ganti nama**, dan **Hapus**. Kalau sebuah tombol tidak bisa dipakai, alasannya muncul saat kursor diarahkan ke tombol itu.
+
+- **Duplikat** membuat profil baru yang terpisah. Kalau **Salin login** dicentang, cookie login profil asal ikut disalin, misalnya profil A yang login Google a1 menghasilkan profil B yang juga login Google a1. localStorage tidak ikut disalin. Karena akunnya sama, logout di satu profil bisa ikut mengakhiri login di profil lain.
+- **Pakai login bersama…** (dulu "Share sesi") membuat beberapa profil memakai satu sesi yang sama secara langsung.
+- Panel samping bisa disembunyikan dengan **◧ Sembunyikan panel**, tombol **»**, atau Ctrl+Shift+B, supaya halaman web memakai seluruh lebar. Pilihan ini diingat setelah restart.
+
 ## Gmail / Google dan Share sesi
 
 1. Pilih profil yang sudah memiliki login Google, misalnya YouTube.
@@ -145,7 +153,7 @@ Tes `tests/sharing.cjs` memverifikasi konfirmasi dibatalkan, berbagi pilihan/sem
 
 ## Model Context Protocol (MCP) & Integrasi Editor AI
 
-Hero Browser menyediakan **109 MCP tool**. Secara default hanya preset **core** (31 tool esensial) yang aktif supaya hemat token; agent bisa membuka preset `automation`, `data`, atau `all` dengan `browser_set_tool_preset`, atau set env `HERO_TOOL_PROFILE=all`. Tool-tool ini dapat dihubungkan ke berbagai Code Editor dan AI Client favorit Anda (Cursor, VS Code Cline/Roo, Windsurf, Claude Desktop, Zed, Antigravity, dll).
+Hero Browser menyediakan **112 MCP tool**. Secara default hanya preset **core** (32 tool esensial) yang aktif supaya hemat token; agent bisa membuka preset `automation`, `data`, atau `all` dengan `browser_set_tool_preset`, atau set env `HERO_TOOL_PROFILE=all`. Tool-tool ini dapat dihubungkan ke berbagai Code Editor dan AI Client favorit Anda (Cursor, VS Code Cline/Roo, Windsurf, Claude Desktop, Zed, Antigravity, dll).
 
 📖 **[BACA PANDUAN LENGKAP INTEGRASI MULTI-EDITOR (docs/mcp-client-setup.md)](docs/mcp-client-setup.md)**
 
