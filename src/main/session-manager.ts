@@ -231,6 +231,30 @@ export class SessionManager {
     }));
   }
 
+  /**
+   * "Clear site data" for one site in one profile: cookies of the domain and its
+   * subdomains plus local/session storage, IndexedDB, cache storage and service workers
+   * of the matching origins. Logs the profile out of that site.
+   */
+  async clearSiteData(profileId: string, domain: string): Promise<{ cookies: number; origins: string[] }> {
+    const browserSession = this.getSession(profileId);
+    const host = domain.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '').replace(/^www\./, '');
+    const matches = (value: string) => { const h = value.replace(/^\./, '').toLowerCase(); return h === host || h.endsWith('.' + host); };
+    const cookies = (await browserSession.cookies.get({})).filter(cookie => matches(cookie.domain || ''));
+    const hosts = new Set([host, 'www.' + host, ...cookies.map(cookie => (cookie.domain || '').replace(/^\./, ''))]);
+    for (const cookie of cookies) {
+      const cookieHost = (cookie.domain || '').replace(/^\./, '');
+      await browserSession.cookies.remove(`${cookie.secure ? 'https' : 'http'}://${cookieHost}${cookie.path || '/'}`, cookie.name).catch(() => {});
+    }
+    const origins = [...hosts].flatMap(h => [`https://${h}`, `http://${h}`]);
+    for (const origin of origins) {
+      await browserSession.clearStorageData({ origin, storages: ['localstorage', 'indexdb', 'cachestorage', 'serviceworkers', 'filesystem', 'shadercache'] }).catch(() => {});
+    }
+    await browserSession.cookies.flushStore();
+    this.socialCache.delete(this.profiles.getSessionProfileId(profileId));
+    return { cookies: cookies.length, origins: [...hosts] };
+  }
+
   async clearProfile(profileId: string): Promise<void> {
     this.profiles.assertDeletable(profileId);
     this.socialCache.delete(profileId);

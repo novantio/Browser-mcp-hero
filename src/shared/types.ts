@@ -66,7 +66,8 @@ export type BrowserCommand =
   | { action: 'resume-human-intervention'; taskId: string }
   | { action: 'certificate-response'; allow: boolean }
   | { action: 'set-media-mode'; mode: 'full' | 'no-video' | 'lite' }
-  | { action: 'set-stealth'; profileId: string; enabled: boolean };
+  | { action: 'set-stealth'; profileId: string; enabled: boolean }
+  | { action: 'clear-site-data'; profileId: string; domain: string };
 
 export interface ViewBounds { x: number; y: number; width: number; height: number }
 export type CommandResult = { ok: true } | { ok: false; error: string };

@@ -48,6 +48,16 @@ export async function handleCommand(ctx: UiCommandContext, browser: BrowserManag
   }
   if (command.action === 'create-profile') { browser.createProfile(command.name); return; }
   if (command.action === 'switch-profile') { browser.switchProfile(command.profileId); return; }
+  if (command.action === 'clear-site-data') {
+    const profile = profiles.requireProfile(command.profileId);
+    const result = await dialog.showMessageBox(ctx.window, {
+      type: 'warning', title: 'Hapus data situs', message: 'Hapus data ' + command.domain + ' di profil “' + profile.name + '”?',
+      detail: 'Cookie, penyimpanan lokal, IndexedDB, dan cache situs ini (termasuk subdomainnya) dihapus dari profil ini saja. Anda akan keluar (logout) dari situs tersebut dan perlu login ulang. Situs lain dan profil lain tidak terpengaruh.',
+      buttons: ['Batal', 'Hapus data situs'], defaultId: 0, cancelId: 0, noLink: true,
+    });
+    if (result.response === 1) await browser.clearSiteData(command.profileId, command.domain);
+    return;
+  }
   if (command.action === 'set-stealth') { browser.setStealth(command.profileId, command.enabled); return; }
   if (command.action === 'set-media-mode') { await browser.setMediaMode(command.mode); return; }
   if (command.action === 'rename-profile') { browser.renameProfile(command.profileId, command.name); return; }

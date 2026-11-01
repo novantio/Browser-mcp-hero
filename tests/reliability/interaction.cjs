@@ -310,6 +310,30 @@ module.exports = async ({ app, url, call, raw, action, expectError, reset, test,
     }
   });
 
+  await test('clear site data removes one site in one profile and keeps other sites', async () => {
+    const guest = await reset();
+    const host = new URL(url).hostname;
+    await guest.evaluate(() => { document.cookie = 'flag=suspicious; max-age=86400; path=/'; localStorage.setItem('device', 'flagged'); });
+    await app.evaluate(async ({ session }) => {
+      await session.fromPartition('persist:hero-default').cookies.set({ url: 'https://other-site.test/', name: 'keep', value: '1', expirationDate: Date.now() / 1000 + 3600 });
+    });
+    const win = await app.firstWindow();
+    // Confirm the "Hapus data situs" dialog without a human.
+    await app.evaluate(({ dialog }) => { globalThis.__realBox = dialog.showMessageBox; dialog.showMessageBox = async () => ({ response: 1, checkboxChecked: false }); });
+    try {
+      assert.deepEqual(await win.evaluate(domain => window.browser.command({ action: 'clear-site-data', profileId: 'default', domain }), host), { ok: true });
+    } finally {
+      await app.evaluate(({ dialog }) => { dialog.showMessageBox = globalThis.__realBox; });
+    }
+    const left = await app.evaluate(async ({ session }, h) => {
+      const cookies = await session.fromPartition('persist:hero-default').cookies.get({});
+      return { site: cookies.filter(c => c.domain.replace(/^./, '') === h).length, other: cookies.filter(c => c.name === 'keep').length };
+    }, host);
+    assert.deepEqual(left, { site: 0, other: 1 });
+    const fresh = await reset();
+    assert.equal(await fresh.evaluate(() => localStorage.getItem('device')), null);
+  });
+
   await test('browser_scroll without a target scrolls the page instantly', async () => {
     const guest = await reset();
     await guest.evaluate(() => { document.body.style.minHeight = '5000px'; window.scrollTo(0, 0); });

@@ -177,6 +177,19 @@ export abstract class BrowserBase {
    * New independent profile from an existing one. With copyLogin the source cookies
    * (Google and other site logins) are copied, so both stay signed in separately.
    */
+  /** Clears one site's cookies and storage in a profile, then reloads that profile's tabs on the site. */
+  async clearSiteData(profileId: string, domain: string): Promise<{ cookies: number; origins: string[] }> {
+    const result = await this.sessions.clearSiteData(profileId, domain);
+    for (const tab of this.tabs.values()) {
+      if (tab.profileId !== profileId || !tab.view || !tab.state.url) continue;
+      let host = '';
+      try { host = new URL(tab.state.url).hostname; } catch { continue; }
+      if (result.origins.includes(host)) tab.view.webContents.reload();
+    }
+    this.emit();
+    return result;
+  }
+
   async duplicateProfile(sourceId: string, options: { name?: string; copyLogin?: boolean; switchTo?: boolean } = {}): Promise<{ profileId: string; name: string; copiedCookies: number }> {
     this.profiles.requireProfile(sourceId);
     const name = options.name?.trim() || this.profiles.suggestCopyName(sourceId);

@@ -60,3 +60,12 @@ test('stealth is on by default, can be switched off per profile and persists', (
   assert.deepEqual(parseCommand({ action: 'set-stealth', profileId: 'research', enabled: true }), { action: 'set-stealth', profileId: 'research', enabled: true });
   assert.throws(() => parseCommand({ action: 'set-stealth', profileId: 'research', enabled: 'no' }));
 });
+
+test('parseCommand accepts clear-site-data for real domains only', () => {
+  assert.deepEqual(parseCommand({ action: 'clear-site-data', profileId: 'default', domain: 'shopee.co.id' }),
+    { action: 'clear-site-data', profileId: 'default', domain: 'shopee.co.id' });
+  assert.equal(parseCommand({ action: 'clear-site-data', profileId: 'default', domain: ' https://shopee.co.id/ ' }).domain, 'https://shopee.co.id/');
+  for (const domain of ['', 'localhost', '../etc', 'shopee.co.id/path/x', 'a b.com']) {
+    assert.throws(() => parseCommand({ action: 'clear-site-data', profileId: 'default', domain }), domain);
+  }
+});
