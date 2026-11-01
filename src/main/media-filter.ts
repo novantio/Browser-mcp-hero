@@ -3,10 +3,12 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { writeAtomic } from './engine-selection';
 
-/** 'lite' keeps pages and their JavaScript working but skips images, video, audio and web fonts. */
+/** 'lite' keeps pages and their JavaScript working but skips images, video and audio. */
 export type MediaMode = 'full' | 'lite';
 
-const BLOCKED_TYPES = new Set(['image', 'media', 'font', 'object']);
+// Web fonts are deliberately NOT blocked: some sites keep text hidden until their font
+// loads and icon fonts would vanish, leaving a page that looks blank. Fonts are small.
+const BLOCKED_TYPES = new Set(['image', 'media', 'object']);
 // Video/audio streamed through fetch/XHR (TikTok, YouTube, Instagram, X players) is not
 // typed as "media", so recognise it by URL as well.
 const MEDIA_URL = /\.(mp4|m4s|m4a|webm|m3u8|mpd|mov|mkv|flv|mp3|aac|ogg|opus)(\?|$)|[?&]mime_type=(video|audio)_|\/video\/tos\/|\/videoplayback\b/i;

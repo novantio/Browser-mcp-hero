@@ -145,7 +145,7 @@ Alur kerja dasar:
 2. `browser_start_task({ profileId })`: simpan `taskId` untuk semua perintah berikutnya. Task yang diam lebih dari 10 menit dijeda dan otomatis lanjut pada perintah berikutnya.
 3. Untuk **mencari atau membaca informasi**, pakai `browser_read_text`. Hasilnya markdown ringkas ala lynx dengan tautan bernomor `[teks][n]` dan daftar URL di akhir. Untuk membuka tautan, panggil lagi dengan `url` dari daftar itu. Mode `fetch` tidak menjalankan JavaScript, jadi tetap jalan di halaman yang berat.
    Situs yang isinya dibuat oleh JavaScript (TikTok, Threads, X, Instagram) kosong di mode `fetch`; hasilnya berisi `hint`. Untuk situs seperti ini:
-   1. Aktifkan mode hemat dengan `browser_set_media_mode({ taskId, mode: "lite" })`. Halaman tetap berjalan, tetapi gambar, video, dan font tidak dimuat, jadi lebih cepat dan hemat kuota.
+   1. Aktifkan mode hemat dengan `browser_set_media_mode({ taskId, mode: "lite" })`. Halaman tetap berjalan, tetapi gambar dan video tidak dimuat (teks dan font tetap), jadi lebih cepat dan hemat kuota.
    2. Buka halamannya dengan `browser_navigate`.
    3. Baca dengan `browser_read_text({ taskId, source: "live" })`.
 

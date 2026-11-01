@@ -11,7 +11,6 @@ test('shouldBlockMedia blocks media requests and keeps everything a page needs t
   const blocked = [
     { resourceType: 'image', url: 'https://p16-sign.tiktokcdn.com/avatar.jpeg' },
     { resourceType: 'media', url: 'https://cdn.example/clip' },
-    { resourceType: 'font', url: 'https://fonts.gstatic.com/x.woff2' },
     { resourceType: 'xhr', url: 'https://v16-webapp-prime.tiktok.com/video/tos/alisg/abc/?mime_type=video_mp4' },
     { resourceType: 'xhr', url: 'https://rr3.googlevideo.com/videoplayback?itag=18' },
     { resourceType: 'other', url: 'https://scontent.cdninstagram.com/v/t50/clip.mp4?efg=1' },
@@ -25,6 +24,8 @@ test('shouldBlockMedia blocks media requests and keeps everything a page needs t
     { resourceType: 'xhr', url: 'https://www.tiktok.com/api/comment/list/?aweme_id=1&count=20' },
     { resourceType: 'xhr', url: 'https://www.threads.net/api/graphql' },
     { resourceType: 'webSocket', url: 'wss://edge-chat.example/ws' },
+    // Fonts stay: blocking them can hide all text on sites that wait for their font.
+    { resourceType: 'font', url: 'https://fonts.gstatic.com/x.woff2' },
     // CAPTCHA puzzles must stay visible so a human can solve them in lite mode.
     { resourceType: 'image', url: 'https://p16-security-sg.ibyteimg.com/img/security-captcha-oversea-singapore/3d_piece.png' },
     { resourceType: 'image', url: 'https://www.google.com/recaptcha/api2/payload?p=abc' },

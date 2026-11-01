@@ -21,7 +21,7 @@ export interface BrowserState extends ProfileState {
   engineUpdate?: EngineUpdateState;
   tasks?: AutomationTask[];
   mcpStatus?: "starting" | "ready" | "failed";
-  /** 'lite' = pages load without images, video and web fonts. */
+  /** 'lite' = pages load without images, video and audio (fonts and text still load). */
   mediaMode?: 'full' | 'lite';
   tabs: BrowserTab[];
   activeTabId: string;

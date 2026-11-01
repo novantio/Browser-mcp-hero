@@ -136,7 +136,7 @@ Klik **⚙ Kelola** di kanan atas (atau Ctrl+Shift+P). Setiap profil punya tombo
 
 ## Mode hemat (tanpa gambar & video)
 
-Klik **▣ Gambar & video: aktif** di toolbar (atau Ctrl+Shift+L) untuk beralih ke **Mode hemat**. Halaman dan JavaScript tetap berjalan, jadi komentar, thread, dan hasil pencarian tetap muncul. Yang tidak dimuat adalah gambar, video, audio, dan web font. Teks alt gambar tetap tampil.
+Klik **▣ Gambar & video: aktif** di toolbar (atau Ctrl+Shift+L) untuk beralih ke **Mode hemat**. Halaman dan JavaScript tetap berjalan, jadi komentar, thread, dan hasil pencarian tetap muncul. Yang tidak dimuat adalah gambar, video, dan audio. Font dan teks tetap dimuat, dan teks alt gambar tetap tampil.
 
 Contoh: di sebuah artikel Wikipedia, data yang diunduh turun dari 642 KB menjadi 90 KB. Pilihan ini berlaku untuk semua tab dan profil, dan diingat setelah restart. Gambar CAPTCHA atau puzzle verifikasi selalu tetap dimuat supaya bisa diselesaikan.
 

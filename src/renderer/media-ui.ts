@@ -2,7 +2,7 @@ import type { BrowserState } from '../shared/types.js';
 import { app, command } from './app-state.js';
 import { element, showToast } from './dom.js';
 
-/** Toolbar switch for lite mode: pages load without images, video and web fonts. */
+/** Toolbar switch for lite mode: pages load without images and video. */
 export function renderMediaMode(state: BrowserState): void {
   const lite = state.mediaMode === 'lite';
   const button = element('toggle-media');
@@ -15,7 +15,7 @@ export function toggleMediaMode(): void {
   const next = app.current?.mediaMode === 'lite' ? 'full' : 'lite';
   void command({ action: 'set-media-mode', mode: next }).then(ok => {
     if (ok) showToast(next === 'lite'
-      ? 'Mode hemat aktif: gambar, video, dan font tidak dimuat. Halaman dimuat ulang.'
+      ? 'Mode hemat aktif: gambar dan video tidak dimuat (teks tetap tampil). Halaman dimuat ulang.'
       : 'Gambar dan video kembali dimuat.');
   });
 }

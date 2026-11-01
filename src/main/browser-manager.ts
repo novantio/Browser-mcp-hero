@@ -12,7 +12,7 @@ import type { MediaMode } from './media-filter';
 export class BrowserManager extends BrowserData {
   /**
    * Lite mode for every profile: pages and their JavaScript still run (comments, threads,
-   * search results load) but images, video, audio and web fonts are not downloaded.
+   * search results load) but images, video and audio are not downloaded (fonts still load).
    * The active page is reloaded so the change is visible at once.
    */
   async setMediaMode(mode: MediaMode, options: { reload?: boolean } = {}, signal?: AbortSignal): Promise<{ mode: MediaMode; blockedRequests: number; reloaded: boolean }> {
