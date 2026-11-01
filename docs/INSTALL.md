@@ -16,8 +16,6 @@ Ikuti langkah berurutan. Setiap langkah punya perintah verifikasi; jangan lanjut
 | Git | `git --version` | |
 | OS desktop | Windows 10/11, macOS, atau Linux dengan desktop | Hero adalah aplikasi Electron dengan jendela; di Linux tanpa layar jalankan lewat `xvfb-run` |
 
-Repo ini **private**. Pastikan akun GitHub yang dipakai sudah punya akses (`gh auth status` atau kredensial git), atau minta pemilik repo menambahkan Anda sebagai collaborator.
-
 ## 2. Clone dan build
 
 Pilih folder instalasi. Contoh di bawah memakai `~/tools/hero-browser`; di Windows misalnya `C:/tools/hero-browser`. Selalu pakai garis miring `/` pada path.

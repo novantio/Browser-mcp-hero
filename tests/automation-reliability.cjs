@@ -219,7 +219,7 @@ const { StdioClientTransport } = require('@modelcontextprotocol/sdk/client/stdio
 
     await test('observe extracts semantic snapshot with numbered element IDs', async () => {
       const guest = await reset();
-      const obs = await action('browser_observe', {});
+      const obs = await action('browser_observe', { format: 'both' });
       assert.ok(obs.url);
       assert.ok(obs.elements && obs.elements.length > 0);
       assert.ok(obs.text && obs.text.includes('[1]'));
@@ -229,7 +229,7 @@ const { StdioClientTransport } = require('@modelcontextprotocol/sdk/client/stdio
 
     await test('type and click by elementId works reliably without CSS selector', async () => {
       const guest = await reset();
-      const obs = await action('browser_observe', {});
+      const obs = await action('browser_observe', { format: 'both' });
       const userEl = obs.elements.find(el => el.tag === 'input' && el.role === 'textbox');
       const submitEl = obs.elements.find(el => el.name === 'Sign in');
       assert.ok(userEl && submitEl);
