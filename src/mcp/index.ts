@@ -7,6 +7,7 @@ import { spawn } from 'node:child_process';
 import http from 'node:http';
 import { setTimeout as delay } from 'node:timers/promises';
 import { toolContracts } from '../shared/mcp-contracts';
+import { HERO_INSTRUCTIONS } from './instructions';
 import { dataContracts } from '../shared/data-contracts';
 import { RpcError, publicError } from '../shared/rpc-error';
 
@@ -146,7 +147,7 @@ async function ensureBridge(signal?: AbortSignal): Promise<BridgeInfo> {
 }
 
 export function createHeroMcpServer(): McpServer {
-  const server = new McpServer({ name: 'hero-browser', version: '0.4.0' });
+  const server = new McpServer({ name: 'hero-browser', version: '0.4.0' }, { instructions: HERO_INSTRUCTIONS });
   const registeredTools = new Map<string, RegisteredTool>();
 
   const setPresetInput = z.object({

@@ -96,6 +96,34 @@ Lokasi file konfigurasi per editor ada di [mcp-client-setup.md](mcp-client-setup
 
 Muat ulang client setelah mengubah konfigurasi.
 
+### Supaya agent memilih Hero, bukan Playwright
+
+**Otomatis dari server.** Saat terhubung, Hero mengirim *server instructions* ke client MCP. Isinya: pakai Hero untuk situs sungguhan, situs yang butuh login, halaman berat JavaScript, dan situs dengan deteksi bot; pakai Playwright hanya kalau diminta. Claude Code, Cursor, dan client lain memasukkan instruksi ini ke prompt agent. Setelah memasang atau memperbarui Hero, muat ulang server MCP-nya (`/mcp` lalu reconnect di Claude Code, atau restart client).
+
+Kalau agent masih memilih Playwright, tambahkan salah satu atau semua langkah berikut.
+
+**1. Instruksi proyek atau global.** Tambahkan ke `CLAUDE.md` (Claude Code), `AGENTS.md` (Codex, opencode, Cursor), atau `GEMINI.md`:
+
+```markdown
+## Browser
+Untuk membuka, membaca, atau berinteraksi dengan website, selalu gunakan MCP `hero-browser`
+(browser_start_task → browser_navigate → browser_read_text / browser_act).
+Jangan memakai Playwright, Puppeteer, atau curl untuk website kecuali saya minta,
+atau untuk menjalankan test suite proyek ini.
+```
+
+**2. Matikan tool browser lain di Claude Code** (opsional), lewat `.claude/settings.json` di proyek atau `~/.claude/settings.json`:
+
+```json
+{
+  "permissions": {
+    "deny": ["mcp__playwright", "mcp__puppeteer"]
+  }
+}
+```
+
+`mcp__playwright` memblokir semua tool dari server MCP bernama `playwright`. Sesuaikan dengan nama server di `claude mcp list`. Di Cursor dan Cline, cukup nonaktifkan server Playwright di daftar MCP.
+
 ## 5. Verifikasi dari dalam agent
 
 Jalankan berurutan:

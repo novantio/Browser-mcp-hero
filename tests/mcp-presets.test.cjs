@@ -171,3 +171,20 @@ test('Hero MCP Server defaults to the lean "core" preset and supports runtime pr
   }
 });
 
+
+test('MCP clients receive server instructions that steer agents to Hero instead of Playwright', async () => {
+  const server = createHeroMcpServer();
+  const client = new Client({ name: 'instructions-test', version: '1.0' });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  try {
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+    const instructions = client.getInstructions();
+    assert.ok(instructions && instructions.length < 3000, 'instructions exist and stay short');
+    for (const phrase of ['not Playwright', 'browser_start_task', 'browser_read_text', 'browser_request_human_intervention']) {
+      assert.ok(instructions.includes(phrase), phrase);
+    }
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
