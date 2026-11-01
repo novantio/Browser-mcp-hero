@@ -32,6 +32,10 @@ export async function dispatchDataMethod(config: BridgeConfig, method: string, p
     if (!jobRunner) throw new RpcError('SERVICE_UNAVAILABLE', 'Data runtime belum aktif.');
     return await jobRunner.resumeJob(String(params.jobId));
   }
+  if (method === 'data.deleteJob') {
+    if (!jobRunner) throw new RpcError('SERVICE_UNAVAILABLE', 'Data runtime belum aktif.');
+    return jobRunner.deleteJob(String(params.jobId), params.deleteResults === true);
+  }
   if (method === 'data.cancelJob') {
     if (!jobRunner) throw new RpcError('SERVICE_UNAVAILABLE', 'Data runtime belum aktif.');
     return jobRunner.cancelJob(String(params.jobId));

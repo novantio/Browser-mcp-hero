@@ -324,3 +324,7 @@
   box-sizing: border-box;
 }
 
+.job-delete-confirm { margin-top: 10px; padding: 10px; border: 1px solid #5a3440; border-radius: 6px; background: #2a1a22; font-size: 11px; }
+.job-delete-confirm p { margin: 0 0 8px; color: #ffd2d2; }
+.job-delete-confirm label { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; color: #d4deed; }
+.job-delete-confirm input { width: auto; }

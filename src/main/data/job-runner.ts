@@ -211,6 +211,17 @@ export class JobRunner {
     return job;
   }
 
+  /** Deletes a job (cancelling it first if it runs); its collected records only with deleteResults. */
+  deleteJob(jobId: string, deleteResults = false): { jobId: string; documents: number; records: number } {
+    const job = this.getJob(jobId);
+    this.abortControllers.get(jobId)?.abort(new RpcError('JOB_CANCELLED', 'Job dihapus.'));
+    this.abortControllers.delete(jobId);
+    if (job.taskId) { try { this.tasks.cancelTask(job.taskId); } catch { /* already finished */ } }
+    const removed = this.store.deleteJobData(jobId, { records: deleteResults });
+    this.emit();
+    return { jobId, ...removed };
+  }
+
   getResults(jobId?: string, offset = 0, limit = 50): unknown {
     return this.store.records({ jobId, offset, limit });
   }

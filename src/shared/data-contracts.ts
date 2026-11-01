@@ -84,6 +84,7 @@ export const dataContracts:ToolContract[]=[
   define('scrape_create_job','data.createJob','Buat job persisten. Tidak langsung berjalan.',jobInput,jobSchema),
   define('scrape_list_jobs','data.listJobs','Daftar job lokal.',obj({}),z.array(jobSchema)),
   ...['run','pause','resume','cancel'].map(action=>define('scrape_'+action+'_job','data.'+action+'Job',action+' job tanpa menghapus hasil atau sesi.',jobId,jobSchema)),
+  define('scrape_delete_job','data.deleteJob','Hapus job secara permanen (dibatalkan dulu bila sedang berjalan), termasuk snapshot, riwayat perubahan, dan laporan drift-nya. Hasil (records) ikut dihapus hanya bila deleteResults: true. Wajib confirm: true.',obj({jobId:id,deleteResults:z.boolean().default(false),confirm:z.literal(true)}),z.object({jobId:id,documents:z.number().int(),records:z.number().int()}).strict()),
   define('scrape_get_status','data.getJob','Status dan checkpoint job.',jobId,jobSchema),
   define('scrape_get_results','data.results','Hasil dengan provenance.',obj({jobId:id.optional(),...pagination}),page),
   define('browser_extract_schema','data.extractSchema','Ekstraksi menurut pemetaan field pada tab task aktif.',obj({taskId:id,schema:extractionSchema}),z.array(jsonObject)),

@@ -1,3 +1,4 @@
+import { renderJobsList } from './data-jobs.js';
 /** Data workspace views: overview stats and the job, dataset, search, network, review and copilot lists. */
 export async function refreshDataView(): Promise<void> {
   if (!window.browser.dataOverview) return;
@@ -15,7 +16,7 @@ export async function refreshDataView(): Promise<void> {
 
     if (window.browser.dataJobs) {
       const jobs = await window.browser.dataJobs();
-      renderJobsList(jobs);
+      renderJobsList(jobs, refreshDataView);
     }
     if (window.browser.dataDatasets) {
       const datasets = await window.browser.dataDatasets();
@@ -23,79 +24,6 @@ export async function refreshDataView(): Promise<void> {
     }
   } catch {
     // Ignore when bridge starting
-  }
-}
-
-export function renderJobsList(jobs: any[]): void {
-  const container = document.getElementById('jobs-container');
-  if (!container) return;
-  container.replaceChildren();
-
-  if (jobs.length === 0) {
-    const empty = document.createElement('div');
-    empty.className = 'empty-hint';
-    empty.textContent = 'Belum ada job scraping/monitoring. Klik "+ Buat Scraping Job" di atas.';
-    container.append(empty);
-    return;
-  }
-
-  for (const job of jobs) {
-    const card = document.createElement('div');
-    card.className = 'data-card';
-
-    const header = document.createElement('div');
-    header.className = 'data-card-header';
-
-    const title = document.createElement('strong');
-    title.textContent = job.name;
-
-    const badge = document.createElement('span');
-    badge.className = `status-badge ${job.status}`;
-    badge.textContent = job.status;
-    header.append(title, badge);
-
-    const meta = document.createElement('div');
-    meta.className = 'data-card-meta';
-    meta.textContent = `Target: ${job.targets?.[0] || '-'} · ${job.records || 0} records collected`;
-
-    const actions = document.createElement('div');
-    actions.className = 'data-card-actions';
-
-    if (job.status === 'running') {
-      const btnPause = document.createElement('button');
-      btnPause.textContent = 'Jeda ⏸';
-      btnPause.onclick = async () => {
-        if (window.browser.dataCommand) {
-          await window.browser.dataCommand('job-pause', { jobId: job.id });
-          await refreshDataView();
-        }
-      };
-      actions.append(btnPause);
-    } else {
-      const btnRun = document.createElement('button');
-      btnRun.textContent = 'Jalankan ▶';
-      btnRun.onclick = async () => {
-        if (window.browser.dataCommand) {
-          await window.browser.dataCommand('job-run', { jobId: job.id });
-          await refreshDataView();
-        }
-      };
-      actions.append(btnRun);
-    }
-
-    const btnCancel = document.createElement('button');
-    btnCancel.textContent = 'Batal ⏹';
-    btnCancel.className = 'btn-danger';
-    btnCancel.onclick = async () => {
-      if (window.browser.dataCommand) {
-        await window.browser.dataCommand('job-cancel', { jobId: job.id });
-        await refreshDataView();
-      }
-    };
-    actions.append(btnCancel);
-
-    card.append(header, meta, actions);
-    container.append(card);
   }
 }
 

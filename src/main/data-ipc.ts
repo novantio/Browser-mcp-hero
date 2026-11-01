@@ -42,6 +42,8 @@ export function registerDataIpc(deps: DataIpcDeps): void {
         case 'job-run': return { ok: true, result: await jobRunner.runJob(String(payload.jobId)) };
         case 'job-pause': return { ok: true, result: jobRunner.pauseJob(String(payload.jobId)) };
         case 'job-resume': return { ok: true, result: await jobRunner.resumeJob(String(payload.jobId)) };
+        case 'job-delete': return { ok: true, result: jobRunner.deleteJob(String(payload.jobId), payload.deleteResults === true) };
+        case 'job-records': return { ok: true, result: store.countJobRecords(String(payload.jobId)) };
         case 'job-cancel': return { ok: true, result: jobRunner.cancelJob(String(payload.jobId)) };
         case 'job-create': return { ok: true, result: jobRunner.createJob(payload) };
         case 'record-start': return { ok: true, result: await recorder.start(String(payload?.name || 'Sesi')) };

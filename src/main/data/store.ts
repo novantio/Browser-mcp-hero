@@ -23,6 +23,19 @@ export class DataStore {
   this.db.prepare('INSERT INTO records VALUES(?,?,?,?,?,?,?)').run(record.id,record.provenance.jobId,record.hash,record.language,record.source.topic,total,JSON.stringify(record));
   this.db.prepare('INSERT INTO record_search(id,text) VALUES(?,?)').run(record.id,record.text);
  }
+ /** Removes a job with its snapshots, changes and drift reports; collected records only when asked. */
+ deleteJobData(jobId:string,options:{records?:boolean}={}):{documents:number;records:number}{
+  return this.transaction(()=>{
+   const docs=this.db.prepare("DELETE FROM documents WHERE (kind='job' AND id=?) OR (kind IN ('snapshot','change','drift') AND json_extract(json,'$.jobId')=?)").run(jobId,jobId);
+   let records=0;
+   if(options.records){
+    this.db.prepare('DELETE FROM record_search WHERE id IN (SELECT id FROM records WHERE job_id=?)').run(jobId);
+    records=Number(this.db.prepare('DELETE FROM records WHERE job_id=?').run(jobId).changes);
+   }
+   return{documents:Number(docs.changes),records};
+  });
+ }
+ countJobRecords(jobId:string):number{return Number((this.db.prepare('SELECT COUNT(*) AS n FROM records WHERE job_id=?').get(jobId) as {n:number}).n);}
  record(id:string):DataRecord{const row=this.db.prepare('SELECT json FROM records WHERE id=?').get(id);if(!row)throw new RpcError('DATA_NOT_FOUND','Record tidak ditemukan.');return JSON.parse(String(row.json));}
  updateRecord(record:DataRecord):void{this.db.prepare('UPDATE records SET json=? WHERE id=?').run(JSON.stringify(record),record.id);}
  records(options:{jobId?:string;query?:string;language?:string;topic?:string;minEngagement?:number;offset?:number;limit?:number}={}):{items:DataRecord[];total:number;nextOffset:number|null}{

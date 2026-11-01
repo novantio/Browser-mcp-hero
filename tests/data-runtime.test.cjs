@@ -273,3 +273,36 @@ test('McpBridge dispatches data contracts via authenticated RPC', async () => {
   jobRunner.stopScheduler();
   store.close();
 });
+
+test('JobRunner.deleteJob removes the job and its history; records only on request', () => {
+  const { store, profiles, tasks } = setup();
+  const runner = new JobRunner(store, { getActiveWebContents: () => ({}) }, tasks, profiles);
+  const job = runner.createJob({ name: 'Komentar', profileId: 'default', targets: ['https://example.com'], schema: { fields: [{ path: 'text', selector: 'p' }] } });
+  const other = runner.createJob({ name: 'Lain', profileId: 'default', targets: ['https://example.org'], schema: { fields: [{ path: 'text', selector: 'p' }] } });
+  store.put('snapshot', 'snap1', { id: 'snap1', jobId: job.id, rows: [] });
+  store.put('change', 'chg1', { jobId: job.id, field: 'text' });
+  store.put('snapshot', 'snap-other', { id: 'snap-other', jobId: other.id, rows: [] });
+  const record = id => ({ id, text: 't ' + id, data: {}, hash: 'h' + id, language: 'id', quality: 1, pii: false, spam: false,
+    source: { url: 'https://example.com', domain: 'example.com', sourceType: 'web', collectedAt: new Date().toISOString(), profileId: 'default', topic: '' },
+    provenance: { jobId: job.id, runId: 'r', snapshotId: 'snap1', extractorVersion: 'v1' } });
+  store.addRecord(record('r1'));
+  store.addRecord(record('r2'));
+  assert.equal(store.countJobRecords(job.id), 2);
+
+  const kept = runner.deleteJob(job.id);
+  assert.equal(kept.records, 0, 'records stay unless asked');
+  assert.equal(kept.documents, 3, 'job + snapshot + change');
+  assert.throws(() => runner.getJob(job.id));
+  assert.equal(store.countJobRecords(job.id), 2);
+  assert.ok(runner.getJob(other.id), 'other jobs untouched');
+  assert.equal(store.list('snapshot').filter(s => s.jobId === other.id).length, 1);
+
+  const again = runner.createJob({ name: 'Komentar 2', profileId: 'default', targets: ['https://example.com'], schema: { fields: [{ path: 'text', selector: 'p' }] } });
+  store.addRecord({ ...record('r3'), provenance: { ...record('r3').provenance, jobId: again.id } });
+  const removed = runner.deleteJob(again.id, true);
+  assert.equal(removed.records, 1);
+  assert.equal(store.records({ query: 't r3' }).total, 0, 'search index cleaned too');
+  runner.stopScheduler();
+  tasks.dispose();
+  store.close();
+});
