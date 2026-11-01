@@ -134,6 +134,16 @@ Klik **⚙ Kelola** di kanan atas (atau Ctrl+Shift+P). Setiap profil punya tombo
 - **Pakai login bersama…** (dulu "Share sesi") membuat beberapa profil memakai satu sesi yang sama secara langsung.
 - Panel samping bisa disembunyikan dengan **◧ Sembunyikan panel**, tombol **»**, atau Ctrl+Shift+B, supaya halaman web memakai seluruh lebar. Pilihan ini diingat setelah restart.
 
+## Mode hemat (tanpa gambar & video)
+
+Klik **▣ Gambar & video: aktif** di toolbar (atau Ctrl+Shift+L) untuk beralih ke **Mode hemat**. Halaman dan JavaScript tetap berjalan, jadi komentar, thread, dan hasil pencarian tetap muncul. Yang tidak dimuat adalah gambar, video, audio, dan web font. Teks alt gambar tetap tampil.
+
+Contoh: di sebuah artikel Wikipedia, data yang diunduh turun dari 642 KB menjadi 90 KB. Pilihan ini berlaku untuk semua tab dan profil, dan diingat setelah restart. Gambar CAPTCHA atau puzzle verifikasi selalu tetap dimuat supaya bisa diselesaikan.
+
+Agent memakai tool `browser_set_media_mode`, lalu `browser_read_text` dengan `source: "live"`.
+
+TikTok, Threads, dan marketplace punya deteksi bot yang ketat. Gunakan profil yang sudah Anda login-kan sendiri, jangan reload berulang, dan serahkan ke manusia begitu muncul popup verifikasi.
+
 ## Gmail / Google dan Share sesi
 
 1. Pilih profil yang sudah memiliki login Google, misalnya YouTube.
@@ -153,7 +163,7 @@ Tes `tests/sharing.cjs` memverifikasi konfirmasi dibatalkan, berbagi pilihan/sem
 
 ## Model Context Protocol (MCP) & Integrasi Editor AI
 
-Hero Browser menyediakan **112 MCP tool**. Secara default hanya preset **core** (32 tool esensial) yang aktif supaya hemat token; agent bisa membuka preset `automation`, `data`, atau `all` dengan `browser_set_tool_preset`, atau set env `HERO_TOOL_PROFILE=all`. Tool-tool ini dapat dihubungkan ke berbagai Code Editor dan AI Client favorit Anda (Cursor, VS Code Cline/Roo, Windsurf, Claude Desktop, Zed, Antigravity, dll).
+Hero Browser menyediakan **113 MCP tool**. Secara default hanya preset **core** (33 tool esensial) yang aktif supaya hemat token; agent bisa membuka preset `automation`, `data`, atau `all` dengan `browser_set_tool_preset`, atau set env `HERO_TOOL_PROFILE=all`. Tool-tool ini dapat dihubungkan ke berbagai Code Editor dan AI Client favorit Anda (Cursor, VS Code Cline/Roo, Windsurf, Claude Desktop, Zed, Antigravity, dll).
 
 📖 **[BACA PANDUAN LENGKAP INTEGRASI MULTI-EDITOR (docs/mcp-client-setup.md)](docs/mcp-client-setup.md)**
 

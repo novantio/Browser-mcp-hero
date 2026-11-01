@@ -108,7 +108,7 @@ test('Hero MCP Server defaults to the lean "core" preset and supports runtime pr
 
     // 1. By default only the lean 'core' preset is visible
     const initialList = await client.listTools();
-    assert.equal(initialList.tools.length, 32);
+    assert.equal(initialList.tools.length, 33);
     for (const name of ['browser_read_text', 'browser_act', 'browser_fill_form', 'browser_restart_app']) assert.ok(initialList.tools.some(tool => tool.name === name), name);
 
     // 2. browser_get_tool_preset returns activePreset: 'core'
@@ -116,12 +116,12 @@ test('Hero MCP Server defaults to the lean "core" preset and supports runtime pr
     assert.ok(!getPresetRes.isError);
     const parsedGet = JSON.parse(getPresetRes.content[0].text);
     assert.equal(parsedGet.result.activePreset, 'core');
-    assert.equal(parsedGet.result.totalToolsCount, 112);
+    assert.equal(parsedGet.result.totalToolsCount, 113);
 
     // 2b. 'all' exposes every tool, including engine management
     await client.callTool({ name: 'browser_set_tool_preset', arguments: { preset: 'all' } });
     const allList = await client.listTools();
-    assert.equal(allList.tools.length, 112);
+    assert.equal(allList.tools.length, 113);
     for (const name of ['browser_get_engine_status', 'browser_check_engine_update']) assert.ok(allList.tools.some(tool => tool.name === name));
 
     // 3. Agent switches to 'core' preset
@@ -129,11 +129,11 @@ test('Hero MCP Server defaults to the lean "core" preset and supports runtime pr
     assert.ok(!setCoreRes.isError);
     const parsedSetCore = JSON.parse(setCoreRes.content[0].text);
     assert.equal(parsedSetCore.result.activePreset, 'core');
-    assert.equal(parsedSetCore.result.enabledToolsCount, 32);
+    assert.equal(parsedSetCore.result.enabledToolsCount, 33);
 
-    // Verify client tools list updated to 32 tools
+    // Verify client tools list updated to 33 tools
     const coreList = await client.listTools();
-    assert.equal(coreList.tools.length, 32);
+    assert.equal(coreList.tools.length, 33);
     assert.ok(coreList.tools.some(t => t.name === 'browser_navigate'));
     assert.ok(coreList.tools.some(t => t.name === 'browser_click'));
     assert.ok(coreList.tools.some(t => t.name === 'browser_screenshot'));
@@ -148,14 +148,14 @@ test('Hero MCP Server defaults to the lean "core" preset and supports runtime pr
       arguments: { preset: 'core', customInclude: ['browser_get_cookies'], customExclude: ['browser_scroll'] },
     });
     const customList = await client.listTools();
-    assert.equal(customList.tools.length, 32); // +1 cookie, -1 scroll
+    assert.equal(customList.tools.length, 33); // +1 cookie, -1 scroll
     assert.ok(customList.tools.some(t => t.name === 'browser_get_cookies'));
     assert.equal(customList.tools.some(t => t.name === 'browser_scroll'), false);
 
     // 5. Agent switches to 'automation' preset
     await client.callTool({ name: 'browser_set_tool_preset', arguments: { preset: 'automation' } });
     const autoList = await client.listTools();
-    assert.equal(autoList.tools.length, 62);
+    assert.equal(autoList.tools.length, 63);
     assert.ok(autoList.tools.some(t => t.name === 'browser_drag_and_drop'));
     assert.ok(autoList.tools.some(t => t.name === 'browser_heal_selector'));
     assert.equal(autoList.tools.some(t => t.name === 'data_get_overview'), false);
@@ -163,7 +163,7 @@ test('Hero MCP Server defaults to the lean "core" preset and supports runtime pr
     // 6. Agent switches back to 'all'
     await client.callTool({ name: 'browser_set_tool_preset', arguments: { preset: 'all' } });
     const fullList = await client.listTools();
-    assert.equal(fullList.tools.length, 112);
+    assert.equal(fullList.tools.length, 113);
 
   } finally {
     await client.close();

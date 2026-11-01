@@ -119,6 +119,8 @@ export class AuditLogger {
         return `Ekstraksi data: ${params.selector}`;
       case 'automation.observe':
         return `Observasi semantik halaman`;
+      case 'browser.setMediaMode':
+        return `Mode media: ${params.mode}`;
       case 'automation.readText':
         return `Baca halaman sebagai teks`;
       case 'app.restart':

@@ -62,6 +62,8 @@ export async function runBrowserAction(config: BridgeConfig, method: string, p: 
     case 'tabs.forward': browser.execute({ action: 'forward' }); break;
     case 'automation.observe':
       return await browser.observe({ maxLength: p.maxLength as number | undefined, format: p.format as 'text' | 'json' | 'both' | undefined });
+    case 'browser.setMediaMode':
+      return await browser.setMediaMode(p.mode as 'full' | 'lite', { reload: p.reload as boolean | undefined }, signal);
     case 'automation.readText': {
       const page = await browser.readText({
         url: p.url as string | undefined, source: p.source as 'auto' | 'fetch' | 'live' | undefined,

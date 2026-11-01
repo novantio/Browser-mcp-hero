@@ -109,13 +109,19 @@ Kalau keempatnya berhasil, instalasi selesai.
 
 ## 6. Cara pakai yang disarankan
 
-Secara default hanya preset **core** (32 tool) yang aktif supaya hemat token. Tambah tool bila perlu dengan `browser_set_tool_preset` (`"automation"`, `"data"`, atau `"all"`), atau set env `HERO_TOOL_PROFILE=all` pada konfigurasi MCP.
+Secara default hanya preset **core** (33 tool) yang aktif supaya hemat token. Tambah tool bila perlu dengan `browser_set_tool_preset` (`"automation"`, `"data"`, atau `"all"`), atau set env `HERO_TOOL_PROFILE=all` pada konfigurasi MCP.
 
 Alur kerja dasar:
 
 1. `browser_list_profiles`: pilih profil yang `loggedInServices`-nya berisi situs target.
 2. `browser_start_task({ profileId })`: simpan `taskId` untuk semua perintah berikutnya. Task yang diam lebih dari 10 menit dijeda dan otomatis lanjut pada perintah berikutnya.
 3. Untuk **mencari atau membaca informasi**, pakai `browser_read_text`. Hasilnya markdown ringkas ala lynx dengan tautan bernomor `[teks][n]` dan daftar URL di akhir. Untuk membuka tautan, panggil lagi dengan `url` dari daftar itu. Mode `fetch` tidak menjalankan JavaScript, jadi tetap jalan di halaman yang berat.
+   Situs yang isinya dibuat oleh JavaScript (TikTok, Threads, X, Instagram) kosong di mode `fetch`; hasilnya berisi `hint`. Untuk situs seperti ini:
+   1. Aktifkan mode hemat dengan `browser_set_media_mode({ taskId, mode: "lite" })`. Halaman tetap berjalan, tetapi gambar, video, dan font tidak dimuat, jadi lebih cepat dan hemat kuota.
+   2. Buka halamannya dengan `browser_navigate`.
+   3. Baca dengan `browser_read_text({ taskId, source: "live" })`.
+
+   Kalau hasilnya berisi `challenge` (popup verifikasi atau deteksi AI, seperti yang sering muncul di TikTok), **berhenti**. Jangan reload atau mengulang. Panggil `browser_request_human_intervention`.
 4. Untuk **berinteraksi**, pakai `browser_navigate`, lalu `browser_observe` (elemen bernomor `[n]`; tombol kembar diberi `(dekat: ...)`), lalu `browser_act`, `browser_click` dengan `elementId`, atau `browser_fill_form` untuk formulir.
 5. Tambahkan `expect` (`{ "text": "..." }`, `{ "url": "..." }`, atau `{ "selector": "..." }`) pada navigate/click/act agar hasilnya terverifikasi dalam satu langkah.
 6. Ketemu CAPTCHA atau login manual: `browser_request_human_intervention`. Untuk situs dengan anti-fraud ketat (marketplace, bank), biarkan **manusia** yang login langsung di jendela Hero; percobaan login berulang oleh agent bisa membuat akun diblokir.

@@ -34,7 +34,7 @@ const api: BrowserAPI = {
     return () => ipcRenderer.removeListener('browser:open-mcp-modal', handler);
   },
   onMenuAction(listener) {
-    const handler = (_event: Electron.IpcRendererEvent, action: 'toggle-panel' | 'manage-profiles') => listener(action);
+    const handler = (_event: Electron.IpcRendererEvent, action: 'toggle-panel' | 'manage-profiles' | 'toggle-media') => listener(action);
     ipcRenderer.on('browser:menu-action', handler);
     return () => ipcRenderer.removeListener('browser:menu-action', handler);
   },

@@ -43,3 +43,5 @@
 .profiles-create > div { display: flex; gap: 8px; }
 .profiles-feedback { margin: 12px 0 0; padding: 10px 12px; border-radius: 8px; background: #3a2230; color: #ffd2d2; font-size: 12px; }
 #toggle-panel-label { font-size: 12px; }
+.media-toggle.active { background: #2a3a1f; color: #d6f5b0; border: 1px solid #4b6a33; }
+.media-toggle #toggle-media-label { font-size: 12px; }

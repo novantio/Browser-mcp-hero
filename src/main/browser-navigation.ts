@@ -4,6 +4,7 @@ import { WebContentsView } from 'electron';
 import { alternateScheme, isPopupWindow, isWebUrl, resolveAddress } from '../shared/navigation';
 import { STEALTH_SCRIPT } from './stealth';
 import { htmlToMarkdown } from './html-to-markdown';
+import { detectPageChallenge } from './challenge-detector';
 import { BrowserBase } from './browser-base';
 import type { TabEntry } from './browser-base';
 
@@ -328,7 +329,7 @@ export abstract class BrowserNavigation extends BrowserBase {
    * falls back to `fetch` when the page does not respond.
    */
   async readText(options: { url?: string; source?: 'auto' | 'fetch' | 'live'; maxLength?: number; mainOnly?: boolean; includeLinks?: boolean } = {}, signal?: AbortSignal): Promise<{
-    url: string; title: string; status?: number; source: 'fetch' | 'live'; markdown: string; links: number; truncated: boolean;
+    url: string; title: string; status?: number; source: 'fetch' | 'live'; markdown: string; links: number; truncated: boolean; hint?: string; challenge?: string;
   }> {
     const tab = this.active();
     const target = options.url ? resolveAddress(options.url) : tab.state.url;
@@ -338,8 +339,17 @@ export abstract class BrowserNavigation extends BrowserBase {
     if (wantLive && tab.view && !tab.view.webContents.isDestroyed()) {
       try {
         const contents = tab.view.webContents;
+        // Bot/AI-detection walls (TikTok puzzles, Cloudflare, reCAPTCHA): retrying makes the
+        // site more suspicious, so tell the agent to stop and hand over to the human.
+        const challenge = await detectPageChallenge(contents);
         const html = String(await this.run(contents, 'document.documentElement ? document.documentElement.outerHTML : ""', 4000));
-        return { url: contents.getURL() || target, source: 'live', ...htmlToMarkdown(html, { ...convertOptions, baseUrl: contents.getURL() || target }) };
+        return {
+          url: contents.getURL() || target, source: 'live', ...htmlToMarkdown(html, { ...convertOptions, baseUrl: contents.getURL() || target }),
+          ...(challenge.detected ? {
+            challenge: challenge.provider || 'unknown',
+            hint: 'Halaman menampilkan verifikasi/deteksi bot. JANGAN mengulang atau memuat ulang: panggil browser_request_human_intervention agar manusia menyelesaikannya, lalu lanjutkan perlahan.',
+          } : {}),
+        };
       } catch (error) {
         if (options.source === 'live') throw error;
         // Page is busy or crashed: read the same URL without its JavaScript instead.
@@ -363,6 +373,11 @@ export abstract class BrowserNavigation extends BrowserBase {
       const maxLength = Math.min(Math.max(options.maxLength ?? 20000, 200), 200000);
       return { url: finalUrl, title: '', status: response.status, source: 'fetch', markdown: body.slice(0, maxLength), links: 0, truncated: body.length > maxLength };
     }
-    return { url: finalUrl, status: response.status, source: 'fetch', ...htmlToMarkdown(body, { ...convertOptions, baseUrl: finalUrl }) };
+    const page = htmlToMarkdown(body, { ...convertOptions, baseUrl: finalUrl });
+    // Single-page apps (TikTok, Threads, X, Instagram) ship an empty shell without JavaScript.
+    const hint = page.markdown.replace(/\n---\nTautan:[\s\S]*$/, '').trim().length < 300
+      ? 'Isi halaman ini dibuat oleh JavaScript. Pakai browser_set_media_mode { mode: "lite" }, browser_navigate ke URL ini, lalu browser_read_text { source: "live" }.'
+      : undefined;
+    return { url: finalUrl, status: response.status, source: 'fetch', ...page, ...(hint ? { hint } : {}) };
   }
 }

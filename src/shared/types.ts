@@ -21,6 +21,8 @@ export interface BrowserState extends ProfileState {
   engineUpdate?: EngineUpdateState;
   tasks?: AutomationTask[];
   mcpStatus?: "starting" | "ready" | "failed";
+  /** 'lite' = pages load without images, video and web fonts. */
+  mediaMode?: 'full' | 'lite';
   tabs: BrowserTab[];
   activeTabId: string;
 }
@@ -62,7 +64,8 @@ export type BrowserCommand =
   | { action: 'navigate'; input: string }
   | { action: 'back' | 'forward' | 'reload' | 'stop' | 'home' }
   | { action: 'resume-human-intervention'; taskId: string }
-  | { action: 'certificate-response'; allow: boolean };
+  | { action: 'certificate-response'; allow: boolean }
+  | { action: 'set-media-mode'; mode: 'full' | 'lite' };
 
 export interface ViewBounds { x: number; y: number; width: number; height: number }
 export type CommandResult = { ok: true } | { ok: false; error: string };
@@ -110,7 +113,7 @@ export interface BrowserAPI {
   copyToClipboard?(text: string): Promise<boolean>;
   onOpenMcpModal?(listener: () => void): () => void;
   /** Menu shortcuts that must work while a web page has keyboard focus. */
-  onMenuAction?(listener: (action: 'toggle-panel' | 'manage-profiles') => void): () => void;
+  onMenuAction?(listener: (action: 'toggle-panel' | 'manage-profiles' | 'toggle-media') => void): () => void;
   dataOverview?(): Promise<Record<string, unknown>>;
   dataJobs?(): Promise<unknown[]>;
   dataDatasets?(): Promise<unknown[]>;

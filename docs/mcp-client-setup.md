@@ -151,7 +151,7 @@ Buka file tersebut dan tambahkan:
   }
 }
 ```
-Muat ulang Windsurf (*Reload Window*) untuk memuat tool Hero Browser (default preset core, 32 tool).
+Muat ulang Windsurf (*Reload Window*) untuk memuat tool Hero Browser (default preset core, 33 tool).
 
 ---
 
@@ -177,7 +177,7 @@ Untuk menggunakan Hero Browser langsung bersama **Claude 3.7 / 3.5 Sonnet** di a
 }
 ```
 3. Restart aplikasi Claude Desktop.
-4. Anda akan melihat ikon palu (*tool icon*) di pojok chat dengan status *32 tools available* (preset core).
+4. Anda akan melihat ikon palu (*tool icon*) di pojok chat dengan status *33 tools available* (preset core).
 
 ---
 
@@ -277,7 +277,7 @@ if __name__ == "__main__":
 
 ## Daftar Tool Unggulan yang Didapat
 
-Dengan mengintegrasikan Hero Browser MCP, AI Assistant Anda di editor apa pun mendapatkan akses ke **112 tool** (32 aktif secara default di preset core):
+Dengan mengintegrasikan Hero Browser MCP, AI Assistant Anda di editor apa pun mendapatkan akses ke **113 tool** (33 aktif secara default di preset core):
 
 | Kategori | Tool Utama | Fungsi |
 |---|---|---|

@@ -54,6 +54,9 @@ export const toolContracts: ToolContract[] = [
   define('browser_observe', 'automation.observe', 'Ambil snapshot semantik elemen interaktif bernomor [1], [2] untuk diklik/diisi. Elemen kembar diberi konteks "(dekat: ...)". format: "text" (default, hemat token), "json" (array elements), "both". Untuk MEMBACA isi halaman gunakan browser_read_text.', {
     ...taskInput, maxLength: z.number().int().min(100).max(100000).optional(), format: z.enum(['text', 'json', 'both']).optional(),
   }, observeResult),
+  define('browser_set_media_mode', 'browser.setMediaMode', 'Mode hemat: "lite" memuat halaman TANPA gambar, video, audio, dan web font, tetapi JavaScript tetap jalan sehingga komentar TikTok/YouTube, thread, dan hasil pencarian tetap muncul (lebih cepat dan hemat kuota). "full" mengembalikan media. Berlaku untuk semua tab/profil dan diingat; tab aktif dimuat ulang (reload: false untuk tidak). Untuk mencari informasi di situs berat-JavaScript: set lite, browser_navigate, lalu browser_read_text { source: "live" }.', {
+    ...taskInput, mode: z.enum(['full', 'lite']), reload: z.boolean().optional(),
+  }, z.object({ mode: z.enum(['full', 'lite']), blockedRequests: z.number().int(), reloaded: z.boolean() }).strict()),
   define('browser_read_text', 'automation.readText', 'Baca halaman sebagai markdown ringkas ala lynx: judul, paragraf, daftar, tabel, dan tautan bernomor [teks][n] dengan daftar URL di akhir. Paling hemat token untuk mencari informasi. source "fetch" mengunduh HTML dengan cookie profil TANPA menjalankan JavaScript (aman untuk halaman berat/hang); "live" membaca DOM tab saat ini (untuk SPA); "auto" (default) = live untuk tab aktif bila url kosong, fetch bila url diisi, dan otomatis fallback ke fetch bila halaman tidak merespons. url opsional; tidak mengubah tab.', {
     ...taskInput,
     url: short.optional(),
@@ -63,7 +66,7 @@ export const toolContracts: ToolContract[] = [
     includeLinks: z.boolean().optional(),
   }, z.object({
     url: z.string(), title: z.string(), status: z.number().int().optional(), source: z.enum(['fetch', 'live']),
-    markdown: z.string(), links: z.number().int(), truncated: z.boolean(),
+    markdown: z.string(), links: z.number().int(), truncated: z.boolean(), hint: z.string().optional(), challenge: z.string().optional(),
   }).strict()),
   define('browser_click', 'automation.click', 'Klik berdasarkan elementId, selector, atau teks. Berikan tepat satu target.', {
     ...taskInput, elementId: z.number().int().min(1).optional(), selector: short.optional(), text: short.optional(), expect: expectCondition.optional(),

@@ -5,10 +5,27 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { BrowserData } from './browser-data';
 
 export type { ExpectCondition } from './browser-base';
+import type { MediaMode } from './media-filter';
 
 /** Public browser runtime used by the app, MCP bridge and data jobs. Each layer lives in its own file:
  * base -> navigation -> page -> automation -> data -> manager. */
 export class BrowserManager extends BrowserData {
+  /**
+   * Lite mode for every profile: pages and their JavaScript still run (comments, threads,
+   * search results load) but images, video, audio and web fonts are not downloaded.
+   * The active page is reloaded so the change is visible at once.
+   */
+  async setMediaMode(mode: MediaMode, options: { reload?: boolean } = {}, signal?: AbortSignal): Promise<{ mode: MediaMode; blockedRequests: number; reloaded: boolean }> {
+    this.sessions.media.setMode(mode);
+    const tab = this.active();
+    const reloaded = options.reload !== false && Boolean(tab.state.url && tab.view);
+    // Hard reload: images still in Chromium's memory cache never reach webRequest, so a
+    // normal reload would keep showing them.
+    if (reloaded) await this.reloadTab({ hard: true }, signal);
+    this.emit();
+    return { mode, blockedRequests: this.sessions.media.blockedCount(), reloaded };
+  }
+
   async evaluateSafe(script: string, timeoutMs = 15000): Promise<unknown> {
     const contents = this.getActiveWebContents();
     if (contents.isDestroyed() || contents.isCrashed()) {

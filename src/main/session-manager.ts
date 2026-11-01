@@ -5,6 +5,7 @@ import { ProfileManager } from './profile-manager';
 import { DownloadManager } from './download-manager';
 import { detectSessionSocialLogins } from './social-detector';
 import { CertificateTrustStore } from './certificate-trust';
+import { MediaFilter } from './media-filter';
 import { normalizeCertHost } from '../shared/navigation';
 import type { SocialAccountInfo } from '../shared/profiles';
 
@@ -26,6 +27,8 @@ export class SessionManager {
   private readonly downloadManager: DownloadManager;
   private readonly socialCache = new Map<string, { timestamp: number; accounts: SocialAccountInfo[] }>();
   private readonly trustStore: CertificateTrustStore;
+  /** Lite mode (no images/video/fonts) shared by every profile session. */
+  readonly media: MediaFilter;
   private readonly pendingCertificates = new Map<string, PendingCertificate>();
   private certificatePromptHandler: CertificatePromptHandler | null = null;
   // Host of the current top-level navigation. Only this host may raise a
@@ -35,6 +38,7 @@ export class SessionManager {
   constructor(private readonly profiles: ProfileManager, downloadManager?: DownloadManager, trustDirectory?: string) {
     this.downloadManager = downloadManager || new DownloadManager();
     this.trustStore = new CertificateTrustStore(trustDirectory || this.downloadManager.userDataDirectory());
+    this.media = new MediaFilter(trustDirectory || this.downloadManager.userDataDirectory());
   }
 
   onCertificatePrompt(handler: CertificatePromptHandler): void {
@@ -125,6 +129,7 @@ export class SessionManager {
       this.certificatePromptHandler({ requestId, host, url: `https://${request.hostname}/` });
     });
     this.downloadManager.attachSession(browserSession);
+    this.media.attach(browserSession);
 
     // Automatically persist session cookies across restarts by giving them an expiration date
     browserSession.cookies.on('changed', (_event, cookie, _cause, removed) => {

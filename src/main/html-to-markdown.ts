@@ -66,6 +66,7 @@ export function htmlToMarkdown(html: string, options: { baseUrl?: string; maxLen
   let inSelect: string[] | null = null;
   let selectLabel = '';
   const rows: number[] = [];
+  const buttons: number[] = [];
   const CELL = '\u0001';
 
   const tail = () => out.join('').slice(-2);
@@ -172,9 +173,15 @@ export function htmlToMarkdown(html: string, options: { baseUrl?: string; maxLen
         if (!isClose) write(`[textarea: ${attr(attrs, 'placeholder') || attr(attrs, 'name') || ''}]`);
         if (!isClose) { skipTag = 'textarea'; skipDepth = 1; }
         continue;
-      case 'button':
-        if (!isClose) write('[tombol: '); else write(']');
+      case 'button': {
+        if (!isClose) { buttons.push(out.length); continue; }
+        const start = buttons.pop();
+        if (start === undefined) continue;
+        // Icon-only buttons have no text; dropping them keeps the output readable.
+        const label = out.slice(start).join('').replace(/\s+/g, ' ').trim();
+        out.splice(start, out.length - start, ...(label ? [`[tombol: ${label}]`] : []));
         continue;
+      }
       case 'select':
         if (!isClose) { inSelect = []; selectLabel = attr(attrs, 'aria-label') || attr(attrs, 'name') || 'pilihan'; }
         else if (inSelect) { write(`[${selectLabel}: ${inSelect.slice(0, 15).join(' | ')}${inSelect.length > 15 ? ' | …' : ''}]`); inSelect = null; }

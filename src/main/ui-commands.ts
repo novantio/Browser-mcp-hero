@@ -48,6 +48,7 @@ export async function handleCommand(ctx: UiCommandContext, browser: BrowserManag
   }
   if (command.action === 'create-profile') { browser.createProfile(command.name); return; }
   if (command.action === 'switch-profile') { browser.switchProfile(command.profileId); return; }
+  if (command.action === 'set-media-mode') { await browser.setMediaMode(command.mode); return; }
   if (command.action === 'rename-profile') { browser.renameProfile(command.profileId, command.name); return; }
   if (command.action === 'duplicate-profile') {
     // The copy is an independent profile; switch to it so the human sees the result.

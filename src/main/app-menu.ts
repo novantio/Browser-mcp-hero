@@ -49,6 +49,7 @@ export function setupApplicationMenu(window: BrowserWindow, deps: { manager: () 
       submenu: [
         { label: 'Tampilkan/Sembunyikan Panel Samping', accelerator: 'CmdOrCtrl+Shift+B', click: () => window.webContents.send('browser:menu-action', 'toggle-panel') },
         { label: 'Kelola Profil…', accelerator: 'CmdOrCtrl+Shift+P', click: () => window.webContents.send('browser:menu-action', 'manage-profiles') },
+        { label: 'Mode Hemat (tanpa gambar & video)', accelerator: 'CmdOrCtrl+Shift+L', click: () => window.webContents.send('browser:menu-action', 'toggle-media') },
       ],
     },
     {

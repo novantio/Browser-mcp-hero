@@ -142,6 +142,9 @@ export function parseCommand(value: unknown): BrowserCommand {
   if (data.action === 'resume-human-intervention' && typeof data.taskId === 'string' && data.taskId.length <= 100 && keys.length === 2) {
     return { action: 'resume-human-intervention', taskId: data.taskId };
   }
+  if (data.action === 'set-media-mode' && (data.mode === 'full' || data.mode === 'lite') && keys.length === 2) {
+    return { action: 'set-media-mode', mode: data.mode };
+  }
   if (data.action === 'certificate-response' && typeof data.allow === 'boolean' && keys.length === 2) {
     return { action: 'certificate-response', allow: data.allow };
   }

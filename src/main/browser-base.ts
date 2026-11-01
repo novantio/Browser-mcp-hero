@@ -84,6 +84,7 @@ export abstract class BrowserBase {
       })),
       activeProfileId: this.profiles.activeProfileId,
       persistent: true,
+      mediaMode: this.sessions.media.getMode(),
     };
   }
 

@@ -13,7 +13,7 @@ const page = `<!doctype html><html><head><title>Toko &amp; Kopi</title>
 <pre>  kode
     terindentasi</pre>
 <form><label>Kota <select name="kota"><option>Yogyakarta</option><option>Bandung</option></select></label>
-<input type="search" placeholder="Cari produk"><button type="submit">Cari</button></form>
+<input type="search" placeholder="Cari produk"><button type="submit">Cari</button><button aria-label="ikon"><svg><path/></svg></button></form>
 <a href="https://example.com/a">Satu</a> <a href="https://example.com/a">Dua</a>
 </main><footer>Hak cipta</footer></body></html>`;
 
@@ -31,6 +31,7 @@ test('htmlToMarkdown renders a lynx-style page without scripts, styles or hidden
   assert.ok(md.includes('[kota: Yogyakarta | Bandung]'));
   assert.ok(md.includes('[search: Cari produk]'));
   assert.ok(md.includes('[tombol: Cari]'));
+  assert.ok(!/\[tombol:\s*\]/.test(md), 'icon-only buttons are dropped');
   for (const hidden of ['while(true)', 'color:red', 'rahasia', 'juga tersembunyi', 'Menu][']) assert.ok(!md.includes(hidden), hidden);
 });
 
