@@ -32,6 +32,7 @@ export const CORE_TOOL_NAMES = new Set<string>([
   'browser_reload',
   'browser_back',
   'browser_read_text',
+  'browser_extract_list',
   'browser_set_media_mode',
   'browser_observe',
   'browser_act',

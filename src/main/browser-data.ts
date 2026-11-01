@@ -1,5 +1,6 @@
 import { RpcError, assertPageAction } from '../shared/rpc-error';
 import { scrollPageArea } from './page-scroll';
+import { extractRepeatedItems } from './page-list';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { ExtractionSpec, Json } from '../shared/data-contracts';
@@ -113,13 +114,23 @@ export abstract class BrowserData extends BrowserAutomation {
    * around that element (e.g. a TikTok comment panel that scrolls separately).
    */
   async scroll(options: { direction?: 'up' | 'down' | 'top' | 'bottom'; amount?: number; elementId?: number; selector?: string; text?: string }):
-    Promise<{ ok: true; target: 'page' | 'element'; before: number; after: number; max: number; atStart: boolean; atEnd: boolean }> {
+    Promise<{ ok: true; url: string; target: 'page' | 'element'; before: number; after: number; max: number; atStart: boolean; atEnd: boolean }> {
     const result = await this.run(this.getActiveWebContents(), '(' + scrollPageArea.toString() + ')(' + JSON.stringify(options) + ')') as ReturnType<typeof scrollPageArea>;
     if ('error' in result) {
       if (result.error === 'ELEMENT_NOT_FOUND') throw new RpcError('ELEMENT_NOT_FOUND', 'Elemen target scroll tidak ditemukan. Pakai teks yang terlihat di dalam panel (mis. "466 comments") atau elementId dari browser_observe.');
       assertPageAction(result.error);
     }
-    return { ok: true, ...(result as Exclude<typeof result, { error: string }>) };
+    return { ok: true, url: this.getActiveWebContents().getURL(), ...(result as Exclude<typeof result, { error: string }>) };
+  }
+
+  /** Repeating items (comments, results, posts) near a target, as text lines per item. */
+  async extractList(options: { elementId?: number; selector?: string; text?: string; maxItems?: number }) {
+    const result = await this.run(this.getActiveWebContents(), '(' + extractRepeatedItems.toString() + ')(' + JSON.stringify(options) + ')') as ReturnType<typeof extractRepeatedItems>;
+    if ('error' in result) {
+      if (result.error === 'ELEMENT_NOT_FOUND') throw new RpcError('ELEMENT_NOT_FOUND', 'Penanda daftar tidak ditemukan. Pakai teks yang terlihat di dalam panel (mis. "466 comments").');
+      assertPageAction(result.error);
+    }
+    return { url: this.getActiveWebContents().getURL(), ...(result as Exclude<typeof result, { error: string }>) };
   }
 
   async extractSchema(schema: ExtractionSpec): Promise<Record<string, Json>[]> {

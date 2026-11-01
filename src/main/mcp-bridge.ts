@@ -16,6 +16,7 @@ import { contractFor } from '../shared/mcp-contracts';
 import { dataContractFor } from '../shared/data-contracts';
 import { RpcError, publicError } from '../shared/rpc-error';
 import { dispatchDataMethod, NOT_DATA_METHOD } from './mcp-data-dispatch';
+import { redactText } from '../shared/redaction';
 import { runBrowserAction } from './mcp-browser-actions';
 
 import type { SessionManager } from './session-manager';
@@ -239,7 +240,11 @@ export class McpBridge {
     }
     if (method === 'tasks.cancel') { tasks.cancelTask(taskId); return tasks.getTask(taskId); }
     if (method === 'tasks.pause') return tasks.pauseTask(taskId);
-    if (method === 'tasks.resumeIntervention') return tasks.resumeTask(taskId, params.resumeToken as string | undefined);
+    if (method === 'tasks.resumeIntervention') {
+      const resumed = tasks.resumeTask(taskId, params.resumeToken as string | undefined);
+      // The human may have navigated while in control; report where the tab is now.
+      return { ...resumed, page: await this.pageState() };
+    }
     if (method === 'tasks.complete') { tasks.completeTask(taskId); return tasks.getTask(taskId); }
     if (method === 'tasks.requestIntervention') return tasks.requestHumanIntervention(taskId, {
       reason: String(params.reason), message: String(params.message), timeoutMs: params.timeoutMs as number | undefined,
@@ -306,6 +311,18 @@ export class McpBridge {
       throw error;
     }
   }
+  /** Active tab URL/title and any visible bot challenge, for agents resuming after a human. */
+  private async pageState(): Promise<{ url: string; title: string; challenge?: string } | undefined> {
+    const { browser } = this.config;
+    try {
+      const snapshot = browser.snapshot();
+      const tab = snapshot.tabs.find(t => t.id === snapshot.activeTabId);
+      if (!tab) return undefined;
+      const challenge = await browser.detectChallenge().catch(() => ({ detected: false, provider: undefined }));
+      return { url: redactText(tab.url), title: tab.title, ...(challenge.detected ? { challenge: challenge.provider || 'unknown' } : {}) };
+    } catch { return undefined; }
+  }
+
   stop(): void {
     for (const controller of this.requests) controller.abort(new RpcError('CANCELLED', 'Browser ditutup.'));
     this.server?.close(); this.server = null;

@@ -35,14 +35,22 @@ function attr(attrs: string, name: string): string | undefined {
   return decodeEntities(match[1] ?? match[2] ?? match[3] ?? '');
 }
 
-function isHidden(attrs: string): boolean {
+function isHidden(attrs: string, keepAriaHidden: boolean): boolean {
   if (/(?:^|\s)hidden(?:\s|=|$)/i.test(attrs)) return true;
-  if (attr(attrs, 'aria-hidden') === 'true') return true;
+  // aria-hidden usually marks decorative duplicates, but an open dialog also sets it on the
+  // whole page behind it; keepAriaHidden reads that page anyway.
+  if (!keepAriaHidden && attr(attrs, 'aria-hidden') === 'true') return true;
   const style = (attr(attrs, 'style') || '').replace(/\s+/g, '').toLowerCase();
   return style.includes('display:none') || style.includes('visibility:hidden');
 }
 
-export function htmlToMarkdown(html: string, options: { baseUrl?: string; maxLength?: number; mainOnly?: boolean; includeLinks?: boolean } = {}): MarkdownPage {
+/** True when the HTML contains an open modal dialog (role=dialog / aria-modal). */
+export function hasOpenDialog(html: string): boolean {
+  return /<[a-z][^>]*(?:role\s*=\s*["']?(?:alert)?dialog|aria-modal\s*=\s*["']?true)[^>]*>/i.test(html);
+}
+
+export function htmlToMarkdown(html: string, options: { baseUrl?: string; maxLength?: number; mainOnly?: boolean; includeLinks?: boolean; keepAriaHidden?: boolean } = {}): MarkdownPage {
+  const keepAriaHidden = options.keepAriaHidden === true;
   const maxLength = Math.min(Math.max(options.maxLength ?? 20000, 200), 200000);
   const includeLinks = options.includeLinks !== false;
   let source = html.replace(/<!--[\s\S]*?-->/g, '').replace(/<![^>]*>|<\?[^>]*>/g, '');
@@ -109,8 +117,8 @@ export function htmlToMarkdown(html: string, options: { baseUrl?: string; maxLen
       if (tag === skipTag && !VOID.has(tag)) skipDepth += isClose ? -1 : 1;
       continue;
     }
-    if (!isClose && !VOID.has(tag) && (DROP.has(tag) || isHidden(attrs))) { skipTag = tag; skipDepth = 1; continue; }
-    if (!isClose && VOID.has(tag) && isHidden(attrs)) continue;
+    if (!isClose && !VOID.has(tag) && (DROP.has(tag) || isHidden(attrs, keepAriaHidden))) { skipTag = tag; skipDepth = 1; continue; }
+    if (!isClose && VOID.has(tag) && isHidden(attrs, keepAriaHidden)) continue;
 
     if (/^h[1-6]$/.test(tag)) {
       newline(2);

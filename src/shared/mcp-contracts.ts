@@ -36,7 +36,8 @@ export const toolContracts: ToolContract[] = [
   define('browser_list_tasks', 'tasks.list', 'Daftar tugas dan statusnya.', {}, z.array(task)),
   define('browser_get_task_status', 'tasks.get', 'Baca status task.', taskInput, task),
   define('browser_pause_task', 'tasks.pause', 'Jeda task dan hentikan penantian yang sedang berjalan.', taskInput, task),
-  define('browser_resume_task', 'tasks.resumeIntervention', 'Lanjutkan task. Untuk intervensi manusia, sertakan resumeToken dari permintaan intervensi.', { ...taskInput, resumeToken: id.optional() }, task),
+  define('browser_resume_task', 'tasks.resumeIntervention', 'Lanjutkan task. Untuk intervensi manusia, sertakan resumeToken dari permintaan intervensi. Hasil berisi page { url, title, challenge? }: manusia bisa saja pindah halaman selama memegang kendali, jadi periksa url sebelum melanjutkan dan buka ulang halaman bila perlu.', { ...taskInput, resumeToken: id.optional() },
+    z.object({ ...task.shape, page: z.object({ url: z.string(), title: z.string(), challenge: z.string().optional() }).strict().optional() }).strict()),
   define('browser_complete_task', 'tasks.complete', 'Akhiri task dan lepaskan kunci sesi.', taskInput, task),
   define('browser_cancel_task', 'tasks.cancel', 'Batalkan task dan penantian yang berjalan, lalu lepaskan sesi.', taskInput, task),
   define('browser_request_human_intervention', 'tasks.requestIntervention', 'Jeda task dan kembalikan human_required segera. Pengguna menyelesaikan tindakan di browser lalu melanjutkan.', {
@@ -54,9 +55,9 @@ export const toolContracts: ToolContract[] = [
   define('browser_observe', 'automation.observe', 'Ambil snapshot semantik elemen interaktif bernomor [1], [2] untuk diklik/diisi. Elemen kembar diberi konteks "(dekat: ...)". format: "text" (default, hemat token), "json" (array elements), "both". Untuk MEMBACA isi halaman gunakan browser_read_text.', {
     ...taskInput, maxLength: z.number().int().min(100).max(100000).optional(), format: z.enum(['text', 'json', 'both']).optional(),
   }, observeResult),
-  define('browser_set_media_mode', 'browser.setMediaMode', 'Mode hemat: "lite" memuat halaman TANPA gambar, video, dan audio (font dan teks tetap dimuat), tetapi JavaScript tetap jalan sehingga komentar TikTok/YouTube, thread, dan hasil pencarian tetap muncul (lebih cepat dan hemat kuota). "full" mengembalikan media. Berlaku untuk semua tab/profil dan diingat; tab aktif dimuat ulang (reload: false untuk tidak). Untuk mencari informasi di situs berat-JavaScript: set lite, browser_navigate, lalu browser_read_text { source: "live" }.', {
-    ...taskInput, mode: z.enum(['full', 'lite']), reload: z.boolean().optional(),
-  }, z.object({ mode: z.enum(['full', 'lite']), blockedRequests: z.number().int(), reloaded: z.boolean() }).strict()),
+  define('browser_set_media_mode', 'browser.setMediaMode', 'Mode media: "no-video" memuat gambar (avatar, thumbnail, foto postingan) tetapi TANPA video dan audio; "lite" memuat halaman TANPA gambar, video, dan audio (font dan teks tetap dimuat). Di kedua mode JavaScript tetap jalan sehingga komentar TikTok/YouTube, thread, dan hasil pencarian tetap muncul (lebih cepat dan hemat kuota). "full" mengembalikan media. Berlaku untuk semua tab/profil dan diingat; tab aktif dimuat ulang (reload: false untuk tidak). Untuk mencari informasi di situs berat-JavaScript: set lite, browser_navigate, lalu browser_read_text { source: "live" }.', {
+    ...taskInput, mode: z.enum(['full', 'no-video', 'lite']), reload: z.boolean().optional(),
+  }, z.object({ mode: z.enum(['full', 'no-video', 'lite']), blockedRequests: z.number().int(), reloaded: z.boolean() }).strict()),
   define('browser_read_text', 'automation.readText', 'Baca halaman sebagai markdown ringkas ala lynx: judul, paragraf, daftar, tabel, dan tautan bernomor [teks][n] dengan daftar URL di akhir. Paling hemat token untuk mencari informasi. source "fetch" mengunduh HTML dengan cookie profil TANPA menjalankan JavaScript (aman untuk halaman berat/hang); "live" membaca DOM tab saat ini (untuk SPA); "auto" (default) = live untuk tab aktif bila url kosong, fetch bila url diisi, dan otomatis fallback ke fetch bila halaman tidak merespons. url opsional; tidak mengubah tab.', {
     ...taskInput,
     url: short.optional(),
@@ -126,11 +127,18 @@ export const toolContracts: ToolContract[] = [
     expression: z.string().min(1).max(2000).optional(),
     timeoutMs: z.number().int().min(500).max(60000).optional(),
   }, z.boolean()),
+  define('browser_extract_list', 'automation.extractList', 'Ambil item berulang (komentar, hasil pencarian, postingan, balasan) sebagai data terstruktur: setiap item berisi lines (baris teks, mis. [nama, isi komentar, tanggal, "Reply", jumlah like]) dan links. Berikan text/elementId/selector dari elemen di dalam daftar atau panelnya (mis. text "466 comments") supaya daftar yang tepat dipilih; tanpa target, daftar terbesar di halaman yang dipakai. Gabungkan dengan browser_scroll untuk memuat item berikutnya.', {
+    ...taskInput, elementId: z.number().int().min(1).optional(), selector: short.optional(), text: z.string().min(1).max(200).optional(),
+    maxItems: z.number().int().min(1).max(200).optional(),
+  }, z.object({
+    url: z.string(), container: z.enum(['page', 'panel']), total: z.number().int(),
+    items: z.array(z.object({ lines: z.array(z.string()), links: z.array(z.string()) }).strict()),
+  }).strict()),
   define('browser_scroll', 'automation.scroll', 'Gulir halaman, atau panel yang punya scroll sendiri (komentar TikTok/YouTube, daftar chat, sidebar): berikan elementId, selector, atau text dari elemen apa pun DI DALAM panel itu (mis. text "466 comments") dan Hero menggulir kontainer scroll terdekat. Hasil before/after/max menunjukkan posisi; atEnd: true berarti sudah di dasar (tunggu sebentar lalu scroll lagi bila situs memuat konten baru). amount default 600 px.', {
     ...taskInput, direction: z.enum(['up', 'down', 'top', 'bottom']).optional(), amount: z.number().int().min(1).max(20000).optional(),
     elementId: z.number().int().min(1).optional(), selector: short.optional(), text: z.string().min(1).max(200).optional(),
   }, z.object({
-    ok: z.literal(true), target: z.enum(['page', 'element']), before: z.number(), after: z.number(), max: z.number(), atStart: z.boolean(), atEnd: z.boolean(),
+    ok: z.literal(true), url: z.string(), target: z.enum(['page', 'element']), before: z.number(), after: z.number(), max: z.number(), atStart: z.boolean(), atEnd: z.boolean(),
   }).strict()),
   define('browser_evaluate', 'automation.evaluate', 'Jalankan ekspresi JavaScript aman pada halaman aktif tab task.', {
     ...taskInput, script: z.string().min(1).max(20000),

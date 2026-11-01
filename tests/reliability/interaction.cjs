@@ -259,6 +259,42 @@ module.exports = async ({ app, url, call, raw, action, expectError, reset, test,
     assert.equal(await guest.evaluate(() => document.getElementById('tiktok-like-list').scrollTop), 200);
   });
 
+  await test('browser_extract_list returns comment items from a panel as text lines', async () => {
+    const guest = await reset();
+    await guest.evaluate(() => {
+      const panel = document.createElement('div');
+      panel.style.cssText = 'height:150px;overflow-y:auto';
+      panel.innerHTML = '<p>3 comments</p><div class="list">' + ['Andi|mantap pak|8-17|12', 'Budi|jalan rusak dulu|8-18|5', 'Cici|setuju|8-19|0']
+        .map(row => { const [name, text, date, likes] = row.split('|'); return `<div class="comment item"><a href="https://example.test/@${name}">${name}</a><p>${text}</p><span>${date}</span><span>${likes}</span></div>`; }).join('') + '</div>';
+      document.body.prepend(panel);
+    });
+    const list = await action('browser_extract_list', { text: '3 comments' });
+    assert.equal(list.container, 'panel');
+    assert.equal(list.total, 3);
+    assert.deepEqual(list.items[1].lines, ['Budi', 'jalan rusak dulu', '8-18 5'], 'inline siblings are separated, never glued');
+    assert.deepEqual(list.items[0].links, ['https://example.test/@Andi']);
+    assert.ok(list.url.startsWith(url));
+  });
+
+  await test('browser_read_text live includes the page hidden behind an open dialog', async () => {
+    const guest = await reset();
+    await guest.evaluate(() => {
+      document.body.firstElementChild.setAttribute('aria-hidden', 'true');
+      const dialog = document.createElement('div');
+      dialog.setAttribute('role', 'dialog');
+      dialog.setAttribute('aria-modal', 'true');
+      dialog.textContent = 'Create a passkey';
+      document.body.append(dialog);
+      const filler = document.createElement('p');
+      filler.textContent = 'Isi halaman di belakang popup '.repeat(30);
+      document.body.firstElementChild.append(filler);
+    });
+    const page = await action('browser_read_text', { source: 'live', includeLinks: false });
+    assert.ok(page.markdown.includes('Create a passkey'));
+    assert.ok(page.markdown.includes('Isi halaman di belakang popup'), 'page behind the dialog is read');
+    assert.match(page.hint, /popup\/dialog/);
+  });
+
   await test('browser_scroll without a target scrolls the page instantly', async () => {
     const guest = await reset();
     await guest.evaluate(() => { document.body.style.minHeight = '5000px'; window.scrollTo(0, 0); });
@@ -266,6 +302,7 @@ module.exports = async ({ app, url, call, raw, action, expectError, reset, test,
     assert.equal(result.target, 'page');
     assert.equal(result.after, 400);
     assert.equal(await guest.evaluate(() => Math.round(window.scrollY)), 400);
+    assert.ok(result.url.startsWith(url), 'scroll reports the page it acted on');
   });
 
 };

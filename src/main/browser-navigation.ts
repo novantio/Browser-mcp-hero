@@ -3,7 +3,9 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { WebContentsView } from 'electron';
 import { alternateScheme, isPopupWindow, isWebUrl, resolveAddress } from '../shared/navigation';
 import { STEALTH_SCRIPT } from './stealth';
-import { htmlToMarkdown } from './html-to-markdown';
+import { hasOpenDialog, htmlToMarkdown } from './html-to-markdown';
+import { fetchAsMarkdown } from './read-text';
+import type { ReadTextResult } from './read-text';
 import { detectPageChallenge } from './challenge-detector';
 import { BrowserBase } from './browser-base';
 import type { TabEntry } from './browser-base';
@@ -328,9 +330,7 @@ export abstract class BrowserNavigation extends BrowserBase {
    * still be read. `live` converts the active tab's current DOM (useful for SPAs) and
    * falls back to `fetch` when the page does not respond.
    */
-  async readText(options: { url?: string; source?: 'auto' | 'fetch' | 'live'; maxLength?: number; mainOnly?: boolean; includeLinks?: boolean } = {}, signal?: AbortSignal): Promise<{
-    url: string; title: string; status?: number; source: 'fetch' | 'live'; markdown: string; links: number; truncated: boolean; hint?: string; challenge?: string;
-  }> {
+  async readText(options: { url?: string; source?: 'auto' | 'fetch' | 'live'; maxLength?: number; mainOnly?: boolean; includeLinks?: boolean } = {}, signal?: AbortSignal): Promise<ReadTextResult> {
     const tab = this.active();
     const target = options.url ? resolveAddress(options.url) : tab.state.url;
     if (!target || !isWebUrl(target)) throw new RpcError('INVALID_INPUT', 'Berikan url http(s), atau buka halaman terlebih dahulu.');
@@ -343,8 +343,21 @@ export abstract class BrowserNavigation extends BrowserBase {
         // site more suspicious, so tell the agent to stop and hand over to the human.
         const challenge = await detectPageChallenge(contents);
         const html = String(await this.run(contents, 'document.documentElement ? document.documentElement.outerHTML : ""', 4000));
+        const pageUrl = contents.getURL() || target;
+        let page = htmlToMarkdown(html, { ...convertOptions, baseUrl: pageUrl });
+        let dialogHint: string | undefined;
+        // An open dialog ("Create a passkey", cookie banners) marks the page behind it
+        // aria-hidden; without this the agent would only see the dialog.
+        if (!challenge.detected && hasOpenDialog(html)) {
+          const withPage = htmlToMarkdown(html, { ...convertOptions, baseUrl: pageUrl, keepAriaHidden: true });
+          if (withPage.markdown.length > page.markdown.length * 1.5 + 300) {
+            page = withPage;
+            dialogHint = 'Ada popup/dialog terbuka di atas halaman; isi halaman di belakangnya tetap disertakan. Bila popup menghalangi aksi, tutup dengan browser_press_key { key: "Escape" }.';
+          }
+        }
         return {
-          url: contents.getURL() || target, source: 'live', ...htmlToMarkdown(html, { ...convertOptions, baseUrl: contents.getURL() || target }),
+          url: pageUrl, source: 'live', ...page,
+          ...(dialogHint ? { hint: dialogHint } : {}),
           ...(challenge.detected ? {
             challenge: challenge.provider || 'unknown',
             hint: 'Halaman menampilkan verifikasi/deteksi bot. JANGAN mengulang atau memuat ulang: panggil browser_request_human_intervention agar manusia menyelesaikannya, lalu lanjutkan perlahan.',
@@ -356,28 +369,6 @@ export abstract class BrowserNavigation extends BrowserBase {
       }
     }
 
-    const response = await this.sessions.getSession(tab.profileId).fetch(target, {
-      redirect: 'follow',
-      headers: { Accept: 'text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.5' },
-      signal: AbortSignal.any([AbortSignal.timeout(20000), ...(signal ? [signal] : [])]),
-    }).catch(() => { throw new RpcError('FETCH_FAILED', 'Halaman tidak dapat diunduh. Periksa alamat dan koneksi.'); });
-    const contentType = response.headers.get('content-type') || '';
-    const buffer = Buffer.from(await response.arrayBuffer());
-    if (buffer.byteLength > 8_000_000) throw new RpcError('OUTPUT_LIMIT', 'Halaman terlalu besar untuk dibaca sebagai teks.');
-    const charset = /charset=([^;\s]+)/i.exec(contentType)?.[1]
-      || /<meta[^>]+charset=["']?([a-z0-9_-]+)/i.exec(buffer.subarray(0, 4096).toString('latin1'))?.[1] || 'utf-8';
-    let body: string;
-    try { body = new TextDecoder(charset.toLowerCase()).decode(buffer); } catch { body = buffer.toString('utf8'); }
-    const finalUrl = response.url || target;
-    if (!/html|xml/i.test(contentType) && !/^\s*</.test(body)) {
-      const maxLength = Math.min(Math.max(options.maxLength ?? 20000, 200), 200000);
-      return { url: finalUrl, title: '', status: response.status, source: 'fetch', markdown: body.slice(0, maxLength), links: 0, truncated: body.length > maxLength };
-    }
-    const page = htmlToMarkdown(body, { ...convertOptions, baseUrl: finalUrl });
-    // Single-page apps (TikTok, Threads, X, Instagram) ship an empty shell without JavaScript.
-    const hint = page.markdown.replace(/\n---\nTautan:[\s\S]*$/, '').trim().length < 300
-      ? 'Isi halaman ini dibuat oleh JavaScript. Pakai browser_set_media_mode { mode: "lite" }, browser_navigate ke URL ini, lalu browser_read_text { source: "live" }.'
-      : undefined;
-    return { url: finalUrl, status: response.status, source: 'fetch', ...page, ...(hint ? { hint } : {}) };
+    return fetchAsMarkdown(this.sessions.getSession(tab.profileId), target, convertOptions, signal);
   }
 }

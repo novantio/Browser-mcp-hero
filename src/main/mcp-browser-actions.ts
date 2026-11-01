@@ -63,7 +63,7 @@ export async function runBrowserAction(config: BridgeConfig, method: string, p: 
     case 'automation.observe':
       return await browser.observe({ maxLength: p.maxLength as number | undefined, format: p.format as 'text' | 'json' | 'both' | undefined });
     case 'browser.setMediaMode':
-      return await browser.setMediaMode(p.mode as 'full' | 'lite', { reload: p.reload as boolean | undefined }, signal);
+      return await browser.setMediaMode(p.mode as 'full' | 'no-video' | 'lite', { reload: p.reload as boolean | undefined }, signal);
     case 'automation.readText': {
       const page = await browser.readText({
         url: p.url as string | undefined, source: p.source as 'auto' | 'fetch' | 'live' | undefined,
@@ -162,11 +162,20 @@ export async function runBrowserAction(config: BridgeConfig, method: string, p: 
         timeoutMs: p.timeoutMs as number | undefined,
       }, signal);
     }
-    case 'automation.scroll':
-      return await browser.scroll({
+    case 'automation.extractList': {
+      const list = await browser.extractList({
+        elementId: p.elementId as number | undefined, selector: p.selector as string | undefined, text: p.text as string | undefined, maxItems: p.maxItems as number | undefined,
+      });
+      return { ...list, url: redactText(list.url) };
+    }
+    case 'automation.scroll': {
+      const scrolled = await browser.scroll({
         direction: p.direction as 'up' | 'down' | 'top' | 'bottom' | undefined, amount: p.amount as number | undefined,
         elementId: p.elementId as number | undefined, selector: p.selector as string | undefined, text: p.text as string | undefined,
       });
+      // url lets the agent notice when the page changed under it (e.g. the human navigated).
+      return { ...scrolled, url: redactText(scrolled.url) };
+    }
     case 'automation.evaluate': return await browser.evaluateSafe(String(p.script));
     case 'browser.setVisibility': browser.setVisibility(Boolean(p.visible)); break;
     case 'automation.healSelector':

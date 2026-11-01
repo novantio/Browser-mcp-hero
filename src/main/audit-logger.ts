@@ -149,6 +149,8 @@ export class AuditLogger {
         if (params.networkIdle) return 'Menunggu jaringan tenang (network idle)';
         if (params.expression) return 'Menunggu evaluasi ekspresi JavaScript';
         return `Menunggu ${params.selector ? `elemen ${params.selector}${params.state ? ` (${params.state})` : ''}` : `${params.ms}ms`}`;
+      case 'automation.extractList':
+        return `Ambil daftar item${params.text ? ': ' + params.text : ''}`;
       case 'automation.scroll':
         return `Scroll ${params.elementId || params.selector || params.text ? 'panel' : 'halaman'} (${params.direction || 'down'})`;
       case 'automation.healSelector':

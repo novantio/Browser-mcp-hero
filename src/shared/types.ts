@@ -21,8 +21,8 @@ export interface BrowserState extends ProfileState {
   engineUpdate?: EngineUpdateState;
   tasks?: AutomationTask[];
   mcpStatus?: "starting" | "ready" | "failed";
-  /** 'lite' = pages load without images, video and audio (fonts and text still load). */
-  mediaMode?: 'full' | 'lite';
+  /** 'no-video' = images load, video/audio do not; 'lite' = neither (fonts and text always load). */
+  mediaMode?: 'full' | 'no-video' | 'lite';
   tabs: BrowserTab[];
   activeTabId: string;
 }
@@ -65,7 +65,7 @@ export type BrowserCommand =
   | { action: 'back' | 'forward' | 'reload' | 'stop' | 'home' }
   | { action: 'resume-human-intervention'; taskId: string }
   | { action: 'certificate-response'; allow: boolean }
-  | { action: 'set-media-mode'; mode: 'full' | 'lite' };
+  | { action: 'set-media-mode'; mode: 'full' | 'no-video' | 'lite' };
 
 export interface ViewBounds { x: number; y: number; width: number; height: number }
 export type CommandResult = { ok: true } | { ok: false; error: string };

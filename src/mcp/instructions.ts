@@ -16,7 +16,7 @@ Workflow:
 1. browser_list_profiles: pick a profileId whose loggedInServices includes the target site.
 2. browser_start_task({ profileId }): pass the returned id as taskId to every browser tool. If that profile is not the active one, call browser_switch_profile({ taskId, profileId }) first.
 3. browser_navigate, then:
-   - to READ or search: browser_read_text({ taskId, source: "live" }); it returns compact markdown with numbered links. Panels that scroll on their own (TikTok/YouTube comments, chats) need browser_scroll({ taskId, text: "<visible text inside the panel, e.g. 466 comments>" }); pause a few seconds between scrolls. Call browser_set_media_mode({ taskId, mode: "lite" }) first to skip images and video (faster, fewer bytes).
+   - to READ or search: browser_read_text({ taskId, source: "live" }); it returns compact markdown with numbered links. Panels that scroll on their own (TikTok/YouTube comments, chats) need browser_scroll({ taskId, text: "<visible text inside the panel, e.g. 466 comments>" }); pause a few seconds between scrolls. To collect the items themselves (comments, results, posts) as structured lines, use browser_extract_list({ taskId, text: "<same panel text>" }). For text-heavy sites call browser_set_media_mode({ taskId, mode: "lite" }) first to skip images and video ("no-video" keeps images); on TikTok and other video platforms keep mode "full".
    - to INTERACT: browser_observe (numbered elements), then browser_act / browser_click({ elementId }) / browser_fill_form. Add expect: { text | url | selector } to verify in the same call.
 4. browser_complete_task when done.
 

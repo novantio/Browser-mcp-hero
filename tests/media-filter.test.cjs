@@ -35,16 +35,31 @@ test('shouldBlockMedia blocks media requests and keeps everything a page needs t
   for (const request of allowed) assert.equal(shouldBlockMedia(request), false, request.url);
 });
 
+test('no-video mode keeps images but blocks video and audio; full blocks nothing', () => {
+  const image = { resourceType: 'image', url: 'https://p16-sign.tiktokcdn.com/avatar.jpeg' };
+  const xhrImage = { resourceType: 'xhr', url: 'https://pbs.twimg.com/media/abc.jpg?name=small' };
+  const tiktokVideo = { resourceType: 'xhr', url: 'https://v16-webapp-prime.tiktok.com/video/tos/alisg/abc/?mime_type=video_mp4' };
+  const audio = { resourceType: 'media', url: 'https://cdn.example/song.mp3' };
+  assert.equal(shouldBlockMedia(image, 'no-video'), false);
+  assert.equal(shouldBlockMedia(xhrImage, 'no-video'), false);
+  assert.equal(shouldBlockMedia(tiktokVideo, 'no-video'), true);
+  assert.equal(shouldBlockMedia(audio, 'no-video'), true);
+  for (const request of [image, xhrImage, tiktokVideo, audio]) assert.equal(shouldBlockMedia(request, 'full'), false);
+});
+
 test('MediaFilter remembers the chosen mode across restarts', () => {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'hero-media-'));
   const filter = new MediaFilter(dir);
   assert.equal(filter.getMode(), 'full');
   filter.setMode('lite');
   assert.equal(new MediaFilter(dir).getMode(), 'lite');
+  filter.setMode('no-video');
+  assert.equal(new MediaFilter(dir).getMode(), 'no-video');
 });
 
 test('parseCommand accepts set-media-mode only with a known mode', () => {
   assert.deepEqual(parseCommand({ action: 'set-media-mode', mode: 'lite' }), { action: 'set-media-mode', mode: 'lite' });
+  assert.deepEqual(parseCommand({ action: 'set-media-mode', mode: 'no-video' }), { action: 'set-media-mode', mode: 'no-video' });
   assert.throws(() => parseCommand({ action: 'set-media-mode', mode: 'none' }));
   assert.throws(() => parseCommand({ action: 'set-media-mode' }));
 });
