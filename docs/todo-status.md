@@ -56,3 +56,24 @@ Tidak ada jaminan bahwa semua fitur lanjutan di luar enam temuan audit sudah men
 **Pemulihan sementara:** buka halaman lain lalu kembali, atau tekan Ctrl+R. Untuk mengambil data, pakai `browser_read_text { source: "fetch" }`: teks bersih dalam sekitar 0,6 detik dan tidak terpengaruh iklan.
 
 Detail investigasi: komentar koreksi di PR #1 (novantio/Browser-mcp-hero).
+
+### Daftar request "masih berjalan" tidak pernah dibersihkan — dicatat 1 November 2026
+
+**Gejala:** setelah membuka detik.com lalu pindah ke `cctv.jogjaprov.go.id` di tab yang sama, `browser_get_network_activity` menampilkan `inflightCount: 501`. Daftarnya penuh request iklan detik (safeframe, doubleclick, adroll, `blob:https://news.detik.com/...`), padahal halaman detik sudah lama ditinggalkan.
+
+**Lokasi:** `src/main/data/network-intelligence.ts`, map `pendingRequests`. Entri hanya dihapus saat `Network.loadingFinished` atau `Network.loadingFailed`. Penyebab yang mungkin (belum diverifikasi):
+- Request dari iframe lintas origin (OOPIF) atau yang dibatalkan saat navigasi tidak mengirim event penutup ke debugger tab.
+- Saat navigasi atau `contents` `destroyed`, entri milik tab itu tidak ikut dibuang.
+- Map tidak dipisah per tab, sehingga sisa request tab lain ikut terhitung.
+
+**Dampak (lebih dari sekadar angka salah):**
+- `waitForIdle` (`browser_wait` untuk network idle) memakai `getInflightCount()`. Setelah membuka situs berat iklan, tunggu idle bisa selalu berakhir `TIMEOUT`.
+- `network.inflightCount` di `browser_get_state` menyesatkan agent.
+- Map terus membesar selama sesi (kebocoran memori kecil).
+
+**Usulan perbaikan:**
+1. Simpan `tabId` dan `frameId`/`loaderId` di setiap entri pending. Buang entri lama saat tab bernavigasi ke dokumen baru (`Page.frameNavigated` di frame utama) dan saat `destroyed`.
+2. Abaikan URL `blob:` dan `data:` dalam hitungan inflight.
+3. Beri batas umur (misalnya entri lebih dari 60 detik dianggap gagal) supaya tidak menggantung selamanya.
+4. Hitung inflight per tab aktif, bukan global.
+5. Tes: buka halaman fixture dengan iframe dan request yang menggantung, navigasi ke halaman lain, lalu pastikan `inflightCount` kembali ke 0 dan `waitForIdle` berhasil.
