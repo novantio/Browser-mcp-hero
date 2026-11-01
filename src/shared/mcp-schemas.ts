@@ -18,7 +18,7 @@ export const socialAccount = z.object({
 }).strict();
 
 export const profile = z.object({
-  id, name: z.string(), createdAt: z.number(), sharedWith: id.optional(), lockOwner: id.nullable(),
+  id, name: z.string(), createdAt: z.number(), sharedWith: id.optional(), stealth: z.boolean().optional(), lockOwner: id.nullable(),
   sessionProfileId: id, sharedProfiles: z.array(id), isActive: z.boolean(), isLocked: z.boolean(),
   loggedInServices: z.array(z.string()).optional(),
   socialAccounts: z.array(socialAccount).optional(),

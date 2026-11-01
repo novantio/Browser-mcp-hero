@@ -103,3 +103,20 @@ export const STEALTH_SCRIPT = `
   } catch {}
 })();
 `;
+
+/** CDP identifiers of the stealth script registered on each tab, so it can be removed again. */
+const registered = new WeakMap<Electron.WebContents, string>();
+
+/** Registers or removes the stealth script on a tab (needs the CDP debugger attached). */
+export function applyStealth(contents: Electron.WebContents, enabled: boolean): void {
+  if (contents.isDestroyed() || !contents.debugger.isAttached()) return;
+  const identifier = registered.get(contents);
+  if (enabled && !identifier) {
+    void contents.debugger.sendCommand('Page.addScriptToEvaluateOnNewDocument', { source: STEALTH_SCRIPT })
+      .then((res: { identifier?: string }) => { if (res?.identifier) registered.set(contents, res.identifier); })
+      .catch(() => {});
+  } else if (!enabled && identifier) {
+    registered.delete(contents);
+    void contents.debugger.sendCommand('Page.removeScriptToEvaluateOnNewDocument', { identifier }).catch(() => {});
+  }
+}

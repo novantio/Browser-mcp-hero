@@ -295,6 +295,21 @@ module.exports = async ({ app, url, call, raw, action, expectError, reset, test,
     assert.match(page.hint, /popup\/dialog/);
   });
 
+  await test('stealth can be switched off per profile: pages then see the real browser', async () => {
+    const win = await app.firstWindow();
+    const setStealth = enabled => win.evaluate(value => window.browser.command({ action: 'set-stealth', profileId: 'default', enabled: value }), enabled);
+    try {
+      let guest = await reset();
+      assert.equal(await guest.evaluate(() => Array.isArray(navigator.plugins)), true, 'stealth on: plugins are the injected fake array');
+      assert.deepEqual(await setStealth(false), { ok: true });
+      guest = await reset();
+      assert.equal(await guest.evaluate(() => Array.isArray(navigator.plugins)), false, 'stealth off: the real PluginArray');
+      assert.equal(await guest.evaluate(() => Object.getOwnPropertyDescriptor(navigator, 'webdriver')), undefined, 'no patched getter on navigator');
+    } finally {
+      await setStealth(true);
+    }
+  });
+
   await test('browser_scroll without a target scrolls the page instantly', async () => {
     const guest = await reset();
     await guest.evaluate(() => { document.body.style.minHeight = '5000px'; window.scrollTo(0, 0); });

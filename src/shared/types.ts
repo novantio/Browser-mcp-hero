@@ -65,7 +65,8 @@ export type BrowserCommand =
   | { action: 'back' | 'forward' | 'reload' | 'stop' | 'home' }
   | { action: 'resume-human-intervention'; taskId: string }
   | { action: 'certificate-response'; allow: boolean }
-  | { action: 'set-media-mode'; mode: 'full' | 'no-video' | 'lite' };
+  | { action: 'set-media-mode'; mode: 'full' | 'no-video' | 'lite' }
+  | { action: 'set-stealth'; profileId: string; enabled: boolean };
 
 export interface ViewBounds { x: number; y: number; width: number; height: number }
 export type CommandResult = { ok: true } | { ok: false; error: string };

@@ -9,12 +9,13 @@ export const app = {
   profilePending: false,
 };
 
-const PROFILE_ACTIONS = ['create-profile', 'switch-profile', 'delete-profile', 'rename-profile', 'duplicate-profile',
+const PROFILE_ACTIONS = ['create-profile', 'switch-profile', 'delete-profile', 'rename-profile', 'duplicate-profile', 'set-stealth',
   'save-session', 'share-session', 'stop-sharing', 'open-google'];
 
-let refreshProfileControls: () => void = () => {};
-/** profiles-ui registers how to re-enable its buttons once a profile command settles. */
-export function onProfileControlsChange(listener: () => void): void { refreshProfileControls = listener; }
+const profileControlListeners: Array<() => void> = [];
+const refreshProfileControls = () => { for (const listener of profileControlListeners) listener(); };
+/** Panel and profile dialog re-enable their buttons once a profile command settles. */
+export function onProfileControlsChange(listener: () => void): void { profileControlListeners.push(listener); }
 
 /** Sends a command to the main process. Profile commands are serialized and report into the panel. */
 export async function command(value: BrowserCommand, feedbackId = 'profile-feedback'): Promise<boolean> {

@@ -2,7 +2,7 @@ import { RpcError } from '../shared/rpc-error';
 import { setTimeout as delay } from 'node:timers/promises';
 import { WebContentsView } from 'electron';
 import { alternateScheme, isPopupWindow, isWebUrl, resolveAddress } from '../shared/navigation';
-import { STEALTH_SCRIPT } from './stealth';
+import { STEALTH_SCRIPT, applyStealth } from './stealth';
 import { hasOpenDialog, htmlToMarkdown } from './html-to-markdown';
 import { fetchAsMarkdown } from './read-text';
 import type { ReadTextResult } from './read-text';
@@ -30,6 +30,18 @@ export abstract class BrowserNavigation extends BrowserBase {
     }
   }
 
+  /** Human-only setting: turn the stealth script on/off for a profile and reload its open tabs. */
+  setStealth(profileId: string, enabled: boolean): void {
+    this.profiles.setStealth(profileId, enabled);
+    for (const tab of this.tabs.values()) {
+      if (tab.profileId !== profileId || !tab.view) continue;
+      applyStealth(tab.view!.webContents, this.profiles.isStealthEnabled(tab.profileId));
+      // Already-patched page objects stay patched until the page loads again.
+      if (tab.state.url) tab.view.webContents.reload();
+    }
+    this.emit();
+  }
+
   protected createView(tab: TabEntry): WebContentsView {
     const view = new WebContentsView({ webPreferences: {
       session: this.sessions.getSession(tab.profileId), nodeIntegration: false, contextIsolation: true,
@@ -40,22 +52,16 @@ export abstract class BrowserNavigation extends BrowserBase {
     this.window.contentView.addChildView(view);
     view.setBackgroundColor('#ffffff');
     const contents = view.webContents;
-    // Attach stealth anti-bot evasion
+    // The debugger powers automation (CDP evaluate, network, screenshots); the stealth
+    // script on top of it is a per-profile setting.
     if (!contents.debugger.isAttached()) {
       try { contents.debugger.attach('1.3'); } catch {}
     }
-    if (contents.debugger.isAttached()) {
-      void contents.debugger.sendCommand('Page.enable').catch(() => {});
-      void contents.debugger.sendCommand('Page.addScriptToEvaluateOnNewDocument', {
-        source: STEALTH_SCRIPT,
-      }).catch(() => {});
-    }
-    const injectStealth = () => {
-      if (!contents.isDestroyed()) {
-        contents.executeJavaScript(STEALTH_SCRIPT).catch(() => {});
-      }
-    };
-    contents.on('dom-ready', injectStealth);
+    if (contents.debugger.isAttached()) void contents.debugger.sendCommand('Page.enable').catch(() => {});
+    applyStealth(tab.view!.webContents, this.profiles.isStealthEnabled(tab.profileId));
+    contents.on('dom-ready', () => {
+      if (!contents.isDestroyed() && this.profiles.isStealthEnabled(tab.profileId)) contents.executeJavaScript(STEALTH_SCRIPT).catch(() => {});
+    });
 
     this.consoleMonitor.attach(tab.state.id, contents);
     this.network.attach(contents);

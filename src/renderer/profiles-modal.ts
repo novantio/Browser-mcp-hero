@@ -1,6 +1,6 @@
 import type { BrowserState } from '../shared/types.js';
 import type { ProfileSummary } from '../shared/profiles.js';
-import { app, command } from './app-state.js';
+import { app, command, onProfileControlsChange } from './app-state.js';
 import { element, showToast } from './dom.js';
 import { deleteBlocker } from './profiles-ui.js';
 
@@ -84,6 +84,7 @@ function row(profile: ProfileSummary, state: BrowserState): HTMLLIElement {
   if (profile.id === state.activeProfileId) tags.push('Sedang dipakai');
   if (profile.lockOwner) tags.push('Dikunci tugas AI');
   if (profile.sharedProfiles.length > 1) tags.push('Login bersama');
+  if (profile.stealth === false) tags.push('Stealth mati');
   tags.push(profile.loggedInServices?.length ? 'Login: ' + profile.loggedInServices.join(', ') : 'Belum ada login terdeteksi');
   badges.textContent = tags.join(' · ');
   info.append(name, badges);
@@ -95,6 +96,11 @@ function row(profile: ProfileSummary, state: BrowserState): HTMLLIElement {
     button(isActive ? 'Aktif' : 'Pakai', 'Buka profil ini', () => { void command({ action: 'switch-profile', profileId: profile.id }, FEEDBACK); }, isActive ? 'Profil ini sedang dipakai.' : null),
     button('Duplikat…', 'Buat profil baru yang membawa login profil ini', () => { openForm = { profileId: profile.id, kind: 'duplicate' }; render(state, true); }),
     button('Ganti nama', 'Ganti nama profil', () => { openForm = { profileId: profile.id, kind: 'rename' }; render(state, true); }),
+    button(profile.stealth === false ? 'Stealth: mati' : 'Stealth: aktif',
+      profile.stealth === false
+        ? 'Halaman tampil apa adanya (Chromium/Electron) tanpa pemalsuan identitas browser. Klik untuk menyalakan stealth.'
+        : 'Skrip stealth memalsukan beberapa identitas browser (webdriver, plugin, window.chrome). Situs ketat seperti Shopee justru bisa mencurigai pemalsuan ini. Klik untuk mematikan; tab profil ini dimuat ulang.',
+      () => { void command({ action: 'set-stealth', profileId: profile.id, enabled: profile.stealth === false }, FEEDBACK); }),
     button('Hapus', 'Hapus profil beserta login dan data situsnya', () => { void command({ action: 'delete-profile', profileId: profile.id }, FEEDBACK); }, deleteBlocker(state, profile.id)),
   );
   item.append(info, actions);
@@ -103,7 +109,7 @@ function row(profile: ProfileSummary, state: BrowserState): HTMLLIElement {
 }
 
 function render(state: BrowserState, force = false): void {
-  const key = JSON.stringify([state.activeProfileId, app.profilePending, openForm, state.profiles.map(p => [p.id, p.name, p.lockOwner, p.sharedProfiles, p.loggedInServices])]);
+  const key = JSON.stringify([state.activeProfileId, app.profilePending, openForm, state.profiles.map(p => [p.id, p.name, p.lockOwner, p.sharedProfiles, p.loggedInServices, p.stealth])]);
   // Keep an open form (and what the user typed) unless something relevant changed.
   if (!force && key === renderedKey) return;
   if (!force && openForm && renderedKey) return;
@@ -125,6 +131,9 @@ export function openProfilesModal(): void {
 function closeProfilesModal(): void { element('profiles-modal').hidden = true; openForm = null; }
 
 export function setupProfilesModal(): void {
+  // A command can finish without a new state push (e.g. a setting on another profile);
+  // re-render so buttons disabled while it ran become usable again.
+  onProfileControlsChange(() => { if (!element('profiles-modal').hidden && app.current) render(app.current, true); });
   for (const id of ['manage-profiles', 'open-manage-profiles']) element(id).addEventListener('click', openProfilesModal);
   for (const id of ['close-profiles-modal', 'done-profiles-modal']) element(id).addEventListener('click', closeProfilesModal);
   const modal = element('profiles-modal');

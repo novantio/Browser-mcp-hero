@@ -3,6 +3,8 @@ export interface BrowserProfile {
   name: string;
   createdAt: number;
   sharedWith?: string;
+  /** Anti-detection script on this profile's pages. Absent = on (behaviour before the setting existed). */
+  stealth?: boolean;
 }
 export interface SocialAccountInfo {
   platform: string;

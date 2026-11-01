@@ -60,7 +60,8 @@ export class ProfileManager {
       ids.add(p.id);
       names.add(name.toLocaleLowerCase());
       if (p.sharedWith !== undefined && (typeof p.sharedWith !== 'string' || !/^[a-z0-9][a-z0-9-]{0,63}$/.test(p.sharedWith))) throw new Error('Invalid shared profile');
-      return { id: p.id, name, createdAt: p.createdAt, ...(typeof p.sharedWith === 'string' ? { sharedWith: p.sharedWith } : {}) };
+      return { id: p.id, name, createdAt: p.createdAt, ...(typeof p.sharedWith === 'string' ? { sharedWith: p.sharedWith } : {}),
+        ...(typeof p.stealth === 'boolean' ? { stealth: p.stealth } : {}) };
     });
     if (!ids.has('default') || typeof data.activeProfileId !== 'string' || !ids.has(data.activeProfileId)) throw new Error('Invalid');
     for (const profile of profiles) {
@@ -113,6 +114,15 @@ export class ProfileManager {
     this.store = next;
     return this.requireProfile(id);
   }
+  /** Turns the anti-detection script on or off for one profile's pages. */
+  setStealth(id: string, enabled: boolean): BrowserProfile {
+    this.requireProfile(id);
+    const next = { ...this.store, profiles: this.store.profiles.map(p => (p.id === id ? { ...p, stealth: enabled } : p)) };
+    this.persist(next);
+    this.store = next;
+    return this.requireProfile(id);
+  }
+  isStealthEnabled(id: string): boolean { return this.getProfile(id)?.stealth !== false; }
   /** Picks "<base> (salinan)", "<base> (salinan 2)", ... that is not taken yet. */
   suggestCopyName(id: string): string {
     const base = this.requireProfile(id).name.slice(0, 28);

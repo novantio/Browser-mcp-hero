@@ -47,3 +47,16 @@ test('publicError passes fixed ProfileManager messages through to agents', () =>
   assert.deepEqual(publicError(error), { code: 'PROFILE_EXISTS', message: 'Nama profil sudah digunakan.' });
   assert.equal(publicError(new Error('secret https://x?token=1')).code, 'OPERATION_FAILED', 'other errors stay generic');
 });
+
+test('stealth is on by default, can be switched off per profile and persists', () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'hero-profile-stealth-'));
+  const profiles = new ProfileManager(dir);
+  assert.equal(profiles.isStealthEnabled('default'), true, 'existing profiles keep stealth on');
+  profiles.setStealth('research', false);
+  const reloaded = new ProfileManager(dir);
+  assert.equal(reloaded.isStealthEnabled('research'), false);
+  assert.equal(reloaded.isStealthEnabled('default'), true, 'other profiles are untouched');
+  assert.equal(reloaded.listProfiles().find(p => p.id === 'research').stealth, false);
+  assert.deepEqual(parseCommand({ action: 'set-stealth', profileId: 'research', enabled: true }), { action: 'set-stealth', profileId: 'research', enabled: true });
+  assert.throws(() => parseCommand({ action: 'set-stealth', profileId: 'research', enabled: 'no' }));
+});
