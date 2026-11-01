@@ -58,6 +58,7 @@ export async function handleCommand(ctx: UiCommandContext, browser: BrowserManag
     if (result.response === 1) await browser.clearSiteData(command.profileId, command.domain);
     return;
   }
+  if (command.action === 'set-session-cookies') { profiles.setPersistSessionCookies(command.profileId, command.enabled); browser.emitState(); return; }
   if (command.action === 'set-stealth') { browser.setStealth(command.profileId, command.enabled); return; }
   if (command.action === 'set-media-mode') { await browser.setMediaMode(command.mode); return; }
   if (command.action === 'rename-profile') { browser.renameProfile(command.profileId, command.name); return; }

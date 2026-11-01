@@ -61,7 +61,8 @@ export class ProfileManager {
       names.add(name.toLocaleLowerCase());
       if (p.sharedWith !== undefined && (typeof p.sharedWith !== 'string' || !/^[a-z0-9][a-z0-9-]{0,63}$/.test(p.sharedWith))) throw new Error('Invalid shared profile');
       return { id: p.id, name, createdAt: p.createdAt, ...(typeof p.sharedWith === 'string' ? { sharedWith: p.sharedWith } : {}),
-        ...(typeof p.stealth === 'boolean' ? { stealth: p.stealth } : {}) };
+        ...(typeof p.stealth === 'boolean' ? { stealth: p.stealth } : {}),
+        ...(typeof p.persistSessionCookies === 'boolean' ? { persistSessionCookies: p.persistSessionCookies } : {}) };
     });
     if (!ids.has('default') || typeof data.activeProfileId !== 'string' || !ids.has(data.activeProfileId)) throw new Error('Invalid');
     for (const profile of profiles) {
@@ -99,7 +100,8 @@ export class ProfileManager {
     const name = validateProfileName(value);
     if (this.store.profiles.length >= 20) return fail('PROFILE_LIMIT', 'Maksimal 20 profil.');
     if (this.store.profiles.some(p => p.name.toLocaleLowerCase() === name.toLocaleLowerCase())) return fail('PROFILE_EXISTS', 'Nama profil sudah digunakan.');
-    const profile = { id: randomUUID(), name, createdAt: Date.now() };
+    // New profiles do not stretch session cookies; older profiles keep their behaviour.
+    const profile = { id: randomUUID(), name, createdAt: Date.now(), persistSessionCookies: false };
     const next = { ...this.store, profiles: [...this.store.profiles, profile] };
     this.persist(next);
     this.store = next;
@@ -123,6 +125,14 @@ export class ProfileManager {
     return this.requireProfile(id);
   }
   isStealthEnabled(id: string): boolean { return this.getProfile(id)?.stealth !== false; }
+  setPersistSessionCookies(id: string, enabled: boolean): BrowserProfile {
+    this.requireProfile(id);
+    const next = { ...this.store, profiles: this.store.profiles.map(p => (p.id === id ? { ...p, persistSessionCookies: enabled } : p)) };
+    this.persist(next);
+    this.store = next;
+    return this.requireProfile(id);
+  }
+  isPersistSessionCookies(id: string): boolean { return this.getProfile(id)?.persistSessionCookies !== false; }
   /** Picks "<base> (salinan)", "<base> (salinan 2)", ... that is not taken yet. */
   suggestCopyName(id: string): string {
     const base = this.requireProfile(id).name.slice(0, 28);

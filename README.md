@@ -69,7 +69,14 @@ Di Windows, data versi persisten berada di:
 
 Direktori aktual partisi mengikuti Electron. Nama pengguna untuk profil tidak dipakai sebagai path; profil tambahan menggunakan UUID. File metadata ditulis atomik. Metadata rusak dilaporkan dan tidak diganti diam-diam.
 
-**Penyimpanan persisten tidak menjamin login selamanya.** Cookie dengan masa berlaku disimpan oleh Chromium. Cookie sesi tanpa tanggal kedaluwarsa dan sessionStorage tidak dijamin bertahan setelah restart; situs juga dapat mengakhiri login atau meminta verifikasi ulang. Aplikasi tidak memperpanjang masa berlaku cookie, tidak mengekspor token, dan tidak menebak status autentikasi.
+**Penyimpanan persisten tidak menjamin login selamanya.** Cookie dengan masa berlaku disimpan oleh Chromium. sessionStorage tidak dijamin bertahan setelah restart, dan situs juga dapat mengakhiri login atau meminta verifikasi ulang.
+
+**Cookie sesi** (tanpa tanggal kedaluwarsa) diatur per profil lewat **Kelola profil → "Sesi: diingat / tidak diingat"**:
+- **Diingat**: cookie sesi diperpanjang menjadi 30 hari supaya login tidak hilang setelah restart. Ini default untuk profil lama. Kekurangannya, status sesi yang buruk, misalnya verifikasi yang gagal, juga ikut tersimpan.
+- **Tidak diingat**: perilaku browser biasa, cookie sesi hilang saat Hero ditutup. Ini default untuk profil baru.
+- Cookie sesi **Shopee selalu dikecualikan** dan tidak pernah diperpanjang, karena Shopee menyimpan status verifikasi anti-bot di sana.
+
+Kalau sebuah situs terus gagal karena sesi atau penanda lama, pakai **Kelola profil → "Hapus data situs…"**. Aplikasi tidak mengekspor token dan tidak menebak status autentikasi.
 
 Pilihan profil terakhir dipulihkan saat membuka aplikasi. Daftar URL/tab belum dipulihkan setelah restart. Tidak ada penyimpanan password buatan aplikasi atau impor cookie akun lain.
 

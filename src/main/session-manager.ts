@@ -17,6 +17,15 @@ export interface CertificatePrompt {
 
 type CertificatePromptHandler = (prompt: CertificatePrompt) => void;
 
+/**
+ * Sites whose session cookies must stay session-only. Shopee keeps its anti-bot
+ * verification state in session cookies; persisting them made a failed verification
+ * stick for days.
+ */
+export function keepSessionOnly(host: string): boolean {
+  return host.split('.').includes('shopee');
+}
+
 interface PendingCertificate {
   callback: (verificationResult: number) => void;
   host: string;
@@ -131,28 +140,27 @@ export class SessionManager {
     this.downloadManager.attachSession(browserSession);
     this.media.attach(browserSession);
 
-    // Automatically persist session cookies across restarts by giving them an expiration date
+    // Optionally keep session cookies across restarts by giving them a 30-day expiry.
+    // Per-profile setting; never for sites whose session state must expire (keepSessionOnly).
     browserSession.cookies.on('changed', (_event, cookie, _cause, removed) => {
       this.socialCache.delete(profileId);
-      if (removed) return;
-      if (cookie.session) {
-        const domain = cookie.domain || '';
-        const cleanDomain = domain.startsWith('.') ? domain.slice(1) : domain;
-        if (!cleanDomain) return;
-        const url = (cookie.secure ? 'https://' : 'http://') + cleanDomain + (cookie.path || '/');
-        const expirationDate = Math.floor(Date.now() / 1000) + (30 * 24 * 60 * 60); // 30 days
-        void browserSession.cookies.set({
-          url,
-          name: cookie.name,
-          value: cookie.value,
-          domain: cookie.domain,
-          path: cookie.path,
-          secure: cookie.secure,
-          httpOnly: cookie.httpOnly,
-          sameSite: cookie.sameSite as any,
-          expirationDate,
-        }).catch(() => { /* ignore */ });
-      }
+      if (removed || !cookie.session) return;
+      const cleanDomain = (cookie.domain || '').replace(/^\./, '');
+      if (!cleanDomain || keepSessionOnly(cleanDomain) || !this.profiles.isPersistSessionCookies(profileId)) return;
+      // Host-only cookies must be rewritten without a Domain attribute, otherwise Chromium
+      // keeps the session cookie and adds a second, domain-wide copy.
+      const hostOnly = cookie.hostOnly || cookie.name.startsWith('__Host-');
+      void browserSession.cookies.set({
+        url: (cookie.secure ? 'https://' : 'http://') + cleanDomain + (cookie.path || '/'),
+        name: cookie.name,
+        value: cookie.value,
+        ...(hostOnly ? {} : { domain: cookie.domain }),
+        path: cookie.path,
+        secure: cookie.secure,
+        httpOnly: cookie.httpOnly,
+        sameSite: cookie.sameSite,
+        expirationDate: Math.floor(Date.now() / 1000) + (30 * 24 * 60 * 60),
+      }).catch(() => { /* ignore */ });
     });
 
     this.sessions.set(profileId, browserSession);

@@ -69,3 +69,17 @@ test('parseCommand accepts clear-site-data for real domains only', () => {
     assert.throws(() => parseCommand({ action: 'clear-site-data', profileId: 'default', domain }), domain);
   }
 });
+
+test('session-cookie persistence: per profile, off for new profiles, never for Shopee', () => {
+  const { keepSessionOnly } = require('../dist/main/session-manager');
+  for (const host of ['shopee.co.id', 'shopee.com', 'seller.shopee.co.id', 'shopee.sg']) assert.equal(keepSessionOnly(host), true, host);
+  for (const host of ['tiktok.com', 'myshopeefan.com', 'google.com']) assert.equal(keepSessionOnly(host), false, host);
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'hero-profile-sesscookie-'));
+  const profiles = new ProfileManager(dir);
+  assert.equal(profiles.isPersistSessionCookies('default'), true, 'existing profiles keep the old behaviour');
+  const fresh = profiles.createProfile('Baru');
+  assert.equal(profiles.isPersistSessionCookies(fresh.id), false, 'new profiles start off');
+  profiles.setPersistSessionCookies('default', false);
+  assert.equal(new ProfileManager(dir).isPersistSessionCookies('default'), false);
+  assert.deepEqual(parseCommand({ action: 'set-session-cookies', profileId: 'default', enabled: true }), { action: 'set-session-cookies', profileId: 'default', enabled: true });
+});

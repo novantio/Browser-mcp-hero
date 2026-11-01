@@ -5,4 +5,5 @@ const { runReliabilitySuites } = require('./reliability/harness.cjs');
 runReliabilitySuites([
   require('./reliability/interaction.cjs'),
   require('./reliability/forms-and-state.cjs'),
+  require('./reliability/profiles-and-ui.cjs'),
 ]).catch(error => { console.error(error); process.exitCode = 1; });

@@ -9,7 +9,7 @@ export const app = {
   profilePending: false,
 };
 
-const PROFILE_ACTIONS = ['create-profile', 'switch-profile', 'delete-profile', 'rename-profile', 'duplicate-profile', 'set-stealth',
+const PROFILE_ACTIONS = ['create-profile', 'switch-profile', 'delete-profile', 'rename-profile', 'duplicate-profile', 'set-stealth', 'set-session-cookies',
   'save-session', 'share-session', 'stop-sharing', 'open-google'];
 
 const profileControlListeners: Array<() => void> = [];

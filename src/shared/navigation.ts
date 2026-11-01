@@ -146,9 +146,9 @@ export function parseCommand(value: unknown): BrowserCommand {
       typeof data.domain === 'string' && /^(?:https?:\/\/)?[a-z0-9-]+(?:\.[a-z0-9-]+)+\/?$/i.test(data.domain.trim()) && keys.length === 3) {
     return { action: 'clear-site-data', profileId: data.profileId, domain: data.domain.trim() };
   }
-  if (data.action === 'set-stealth' && typeof data.profileId === 'string' && /^[a-z0-9][a-z0-9-]{0,63}$/.test(data.profileId) &&
+  if ((data.action === 'set-stealth' || data.action === 'set-session-cookies') && typeof data.profileId === 'string' && /^[a-z0-9][a-z0-9-]{0,63}$/.test(data.profileId) &&
       typeof data.enabled === 'boolean' && keys.length === 3) {
-    return { action: 'set-stealth', profileId: data.profileId, enabled: data.enabled };
+    return { action: data.action, profileId: data.profileId, enabled: data.enabled };
   }
   if (data.action === 'set-media-mode' && (data.mode === 'full' || data.mode === 'no-video' || data.mode === 'lite') && keys.length === 2) {
     return { action: 'set-media-mode', mode: data.mode };

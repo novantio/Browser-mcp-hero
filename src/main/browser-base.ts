@@ -280,6 +280,9 @@ export abstract class BrowserBase {
     else { this.layout(); this.emit(); }
   }
 
+  /** Pushes fresh state to the UI after a setting changed outside a browser action. */
+  emitState(): void { this.emit(); }
+
   setBounds(bounds: ViewBounds): void { this.bounds = bounds; this.layout(); }
 
   /** Web pages are native views drawn above the app UI; hide them while a UI dialog is open. */

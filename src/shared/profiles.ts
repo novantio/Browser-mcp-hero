@@ -5,6 +5,8 @@ export interface BrowserProfile {
   sharedWith?: string;
   /** Anti-detection script on this profile's pages. Absent = on (behaviour before the setting existed). */
   stealth?: boolean;
+  /** Keep session cookies (30 days) across restarts. Absent = on for older profiles; new profiles start off. */
+  persistSessionCookies?: boolean;
 }
 export interface SocialAccountInfo {
   platform: string;

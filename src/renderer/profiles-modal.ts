@@ -122,6 +122,7 @@ function row(profile: ProfileSummary, state: BrowserState): HTMLLIElement {
   if (profile.lockOwner) tags.push('Dikunci tugas AI');
   if (profile.sharedProfiles.length > 1) tags.push('Login bersama');
   if (profile.stealth === false) tags.push('Stealth mati');
+  if (profile.persistSessionCookies === false) tags.push('Cookie sesi tidak diingat');
   tags.push(profile.loggedInServices?.length ? 'Login: ' + profile.loggedInServices.join(', ') : 'Belum ada login terdeteksi');
   badges.textContent = tags.join(' · ');
   info.append(name, badges);
@@ -139,6 +140,11 @@ function row(profile: ProfileSummary, state: BrowserState): HTMLLIElement {
         ? 'Halaman tampil apa adanya (Chromium/Electron) tanpa pemalsuan identitas browser. Klik untuk menyalakan stealth.'
         : 'Skrip stealth memalsukan beberapa identitas browser (webdriver, plugin, window.chrome). Situs ketat seperti Shopee justru bisa mencurigai pemalsuan ini. Klik untuk mematikan; tab profil ini dimuat ulang.',
       () => { void command({ action: 'set-stealth', profileId: profile.id, enabled: profile.stealth === false }, FEEDBACK); }),
+    button(profile.persistSessionCookies === false ? 'Sesi: tidak diingat' : 'Sesi: diingat',
+      profile.persistSessionCookies === false
+        ? 'Cookie sesi hilang saat Hero ditutup (perilaku browser biasa). Klik agar cookie sesi diingat 30 hari supaya login tidak hilang setelah restart.'
+        : 'Cookie sesi diperpanjang 30 hari supaya login bertahan setelah restart. Kekurangannya, status sesi yang buruk (mis. verifikasi gagal) juga ikut tersimpan. Shopee selalu dikecualikan. Klik untuk mematikan.',
+      () => { void command({ action: 'set-session-cookies', profileId: profile.id, enabled: profile.persistSessionCookies === false }, FEEDBACK); }),
     button('Hapus', 'Hapus profil beserta login dan data situsnya', () => { void command({ action: 'delete-profile', profileId: profile.id }, FEEDBACK); }, deleteBlocker(state, profile.id)),
   );
   item.append(info, actions);
@@ -147,7 +153,7 @@ function row(profile: ProfileSummary, state: BrowserState): HTMLLIElement {
 }
 
 function render(state: BrowserState, force = false): void {
-  const key = JSON.stringify([state.activeProfileId, app.profilePending, openForm, state.profiles.map(p => [p.id, p.name, p.lockOwner, p.sharedProfiles, p.loggedInServices, p.stealth])]);
+  const key = JSON.stringify([state.activeProfileId, app.profilePending, openForm, state.profiles.map(p => [p.id, p.name, p.lockOwner, p.sharedProfiles, p.loggedInServices, p.stealth, p.persistSessionCookies])]);
   // Keep an open form (and what the user typed) unless something relevant changed.
   if (!force && key === renderedKey) return;
   if (!force && openForm && renderedKey) return;
